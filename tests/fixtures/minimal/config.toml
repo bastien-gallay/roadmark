@@ -1,0 +1,3 @@
+versions = ["v0.2.x", "v0.3", "v0.4"]
+title = "Demo Project — Roadmap"
+source_note = "See docs/adr for the source-of-truth pipeline."
