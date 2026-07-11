@@ -52,6 +52,8 @@ enum Command {
         accept_drift: bool,
     },
     /// Rename a feature slug, rewriting cross-links.
+    /// Not implemented yet — hidden from `--help` until it lands.
+    #[command(hide = true)]
     Rename { from: String, to: String },
 }
 

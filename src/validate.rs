@@ -4,7 +4,7 @@
 //! issues into a `ValidationReport` instead of bailing on the first
 //! parse error, so a single run surfaces every problem.
 
-use crate::{load_config, parse_feature, render, sort_features};
+use crate::{feature_md_paths, load_config, parse_feature, render, sort_features};
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -122,26 +122,17 @@ pub fn validate(root: &Path, roadmap_md: &Path) -> Result<ValidationReport> {
     }
 
     let mut features = Vec::new();
-    for entry in walkdir::WalkDir::new(&features_dir)
-        .min_depth(1)
-        .max_depth(1)
-        .sort_by_file_name()
-    {
-        let entry = entry.context("walking features dir")?;
-        let path = entry.path();
-        if !(entry.file_type().is_file() && path.extension().is_some_and(|e| e == "md")) {
-            continue;
-        }
-        match std::fs::read_to_string(path) {
+    for path in feature_md_paths(&features_dir)? {
+        match std::fs::read_to_string(&path) {
             Ok(src) => match parse_feature(&src) {
                 Ok(f) => features.push(f),
                 Err(e) => report.schema_errors.push(SchemaError {
-                    path: path.to_path_buf(),
+                    path: path.clone(),
                     message: format!("{e:#}"),
                 }),
             },
             Err(e) => report.schema_errors.push(SchemaError {
-                path: path.to_path_buf(),
+                path: path.clone(),
                 message: format!("read failed: {e}"),
             }),
         }
