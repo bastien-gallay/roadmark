@@ -5,7 +5,7 @@ versions = ["v0.1", "v0.2", "v0.3", "Later", "Speculative"]
 title = "Example Project — Roadmap"
 
 # Optional note appended to the generated "DO NOT EDIT" banner. Optional.
-source_note = "Source of truth lives in .roadmap/; run `roadmap generate`."
+source_note = "Source of truth lives in .roadmap/; run `roadmark generate`."
 
 # Closed value-sets for the schema fields, owned by your project — the
 # generator stays taxonomy-neutral. `validate` enforces membership and the

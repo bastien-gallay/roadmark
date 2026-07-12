@@ -1,4 +1,4 @@
-//! `roadmap` — CLI for the `.roadmap/` source-of-truth pipeline.
+//! `roadmark` — CLI for the `.roadmap/` source-of-truth pipeline.
 //!
 //! Subcommands:
 //! - `generate`: render `ROADMAP.md` to stdout
@@ -13,7 +13,7 @@ use std::process::ExitCode;
 
 #[derive(Parser)]
 #[command(
-    name = "roadmap",
+    name = "roadmark",
     version,
     about = "ROADMAP.md generator from .roadmap/ frontmatter source"
 )]
@@ -99,10 +99,10 @@ fn run() -> Result<ExitCode> {
 }
 
 fn generate(root: &std::path::Path) -> Result<()> {
-    let config = roadmap_cli::load_config(root).context("loading config.toml")?;
-    let mut features = roadmap_cli::load_features(root).context("loading features/")?;
-    roadmap_cli::sort_features(&mut features, &config);
-    print!("{}", roadmap_cli::render(&features, &config));
+    let config = roadmark::load_config(root).context("loading config.toml")?;
+    let mut features = roadmark::load_features(root).context("loading features/")?;
+    roadmark::sort_features(&mut features, &config);
+    print!("{}", roadmark::render(&features, &config));
     Ok(())
 }
 
@@ -118,7 +118,7 @@ fn warn_legacy_numeric(slug: &str, noun: &str) {
 }
 
 fn add_cmd(root: &std::path::Path, slug: &str, allow_legacy_numeric: bool) -> Result<ExitCode> {
-    let outcome = roadmap_cli::add::add(root, slug, allow_legacy_numeric)?;
+    let outcome = roadmark::add::add(root, slug, allow_legacy_numeric)?;
     if outcome.legacy_numeric_warning {
         warn_legacy_numeric(slug, "features");
     }
@@ -132,7 +132,7 @@ fn rename_cmd(
     to: &str,
     allow_legacy_numeric: bool,
 ) -> Result<ExitCode> {
-    let outcome = roadmap_cli::rename::rename(root, from, to, allow_legacy_numeric)?;
+    let outcome = roadmark::rename::rename(root, from, to, allow_legacy_numeric)?;
     if outcome.legacy_numeric_warning {
         warn_legacy_numeric(to, "slugs");
     }
@@ -142,7 +142,7 @@ fn rename_cmd(
         outcome.new_path.display()
     );
     println!("rewrote {} file(s)", outcome.rewritten.len());
-    eprintln!("hint: regenerate the roadmap (`roadmap generate > ROADMAP.md`)");
+    eprintln!("hint: regenerate the roadmap (`roadmark generate > ROADMAP.md`)");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -151,7 +151,7 @@ fn validate_cmd(
     roadmap_md: &std::path::Path,
     accept_drift: bool,
 ) -> Result<ExitCode> {
-    let report = roadmap_cli::validate::validate(root, roadmap_md)?;
+    let report = roadmark::validate::validate(root, roadmap_md)?;
     print!("{}", report.to_text());
     if report.has_hard_errors() {
         return Ok(ExitCode::FAILURE);

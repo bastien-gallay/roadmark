@@ -12,23 +12,20 @@ fn fixture(name: &str) -> PathBuf {
 #[test]
 fn minimal_fixture_round_trip() {
     let root = fixture("minimal");
-    let config = roadmap_cli::load_config(&root).unwrap();
-    let mut features = roadmap_cli::load_features(&root).unwrap();
-    roadmap_cli::sort_features(&mut features, &config);
-    let out = roadmap_cli::render(&features, &config);
+    let config = roadmark::load_config(&root).unwrap();
+    let mut features = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut features, &config);
+    let out = roadmark::render(&features, &config);
     insta::assert_snapshot!(out);
 }
 
 #[test]
 fn determinism_round_trip() {
     let root = fixture("minimal");
-    let config = roadmap_cli::load_config(&root).unwrap();
-    let mut a = roadmap_cli::load_features(&root).unwrap();
-    let mut b = roadmap_cli::load_features(&root).unwrap();
-    roadmap_cli::sort_features(&mut a, &config);
-    roadmap_cli::sort_features(&mut b, &config);
-    assert_eq!(
-        roadmap_cli::render(&a, &config),
-        roadmap_cli::render(&b, &config)
-    );
+    let config = roadmark::load_config(&root).unwrap();
+    let mut a = roadmark::load_features(&root).unwrap();
+    let mut b = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut a, &config);
+    roadmark::sort_features(&mut b, &config);
+    assert_eq!(roadmark::render(&a, &config), roadmark::render(&b, &config));
 }

@@ -14,15 +14,15 @@ fn unique_tmp(label: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
-    std::env::temp_dir().join(format!("roadmap-cli-test-{label}-{pid}-{n}"))
+    std::env::temp_dir().join(format!("roadmark-test-{label}-{pid}-{n}"))
 }
 
 fn render_minimal() -> String {
     let root = fixture("minimal");
-    let config = roadmap_cli::load_config(&root).unwrap();
-    let mut features = roadmap_cli::load_features(&root).unwrap();
-    roadmap_cli::sort_features(&mut features, &config);
-    roadmap_cli::render(&features, &config)
+    let config = roadmark::load_config(&root).unwrap();
+    let mut features = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut features, &config);
+    roadmark::render(&features, &config)
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn clean_run_against_matching_roadmap() {
     let roadmap_md = tmp.join("ROADMAP.md");
     std::fs::write(&roadmap_md, render_minimal()).unwrap();
 
-    let report = roadmap_cli::validate::validate(&root, &roadmap_md).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
     assert!(
         report.is_clean(),
         "expected clean, got:\n{}",
@@ -50,7 +50,7 @@ fn drift_when_roadmap_lacks_an_anchor() {
     // Write a stub that contains only one of the fixture's anchors.
     std::fs::write(&roadmap_md, r#"<a id="f22"></a>"#).unwrap();
 
-    let report = roadmap_cli::validate::validate(&root, &roadmap_md).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
     assert!(report.has_drift());
     assert!(!report.has_hard_errors());
     assert!(report
@@ -71,7 +71,7 @@ fn drift_when_roadmap_has_orphan_anchor() {
     content.push_str("\n<a id=\"f-deleted-feature\"></a>\n");
     std::fs::write(&roadmap_md, content).unwrap();
 
-    let report = roadmap_cli::validate::validate(&root, &roadmap_md).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
     assert!(report.has_drift());
     assert_eq!(
         report.anchors_missing_from_regen,
@@ -103,7 +103,7 @@ fn schema_error_does_not_abort_run() {
     let roadmap_md = tmp_md.join("ROADMAP.md");
     std::fs::write(&roadmap_md, "<a id=\"f-good\"></a>\n").unwrap();
 
-    let report = roadmap_cli::validate::validate(&root, &roadmap_md).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
     assert_eq!(report.schema_errors.len(), 1, "{:?}", report.schema_errors);
     assert!(report.schema_errors[0].path.ends_with("f-bad.md"));
 }
@@ -135,7 +135,7 @@ fn anchor_collision_detected() {
     let roadmap_md = tmp_md.join("ROADMAP.md");
     std::fs::write(&roadmap_md, "").unwrap();
 
-    let report = roadmap_cli::validate::validate(&root, &roadmap_md).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
     assert_eq!(report.anchor_collisions.len(), 1);
     assert_eq!(report.anchor_collisions[0].anchor, "f-foo");
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Renamed the project to `roadmark`.** The crate, the library, and the
+  binary are all now `roadmark`; the command you invoke changes from
+  `roadmap …` to `roadmark …`. The `.roadmap/` source directory and the
+  generated `ROADMAP.md` keep their names. The GitHub repository is still
+  `bastien-gallay/roadmap-cli` until it is renamed, so install URLs are
+  unchanged, but the release artifacts are now named `roadmark`.
+
 ## [0.4.0] - 2026-07-12
 
 ### Added

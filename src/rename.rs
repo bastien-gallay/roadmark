@@ -104,7 +104,7 @@ pub fn rename(
         if anchor_id(&f.frontmatter.id) == anchor_id(&old_id) {
             bail!(
                 "id `{old_id}` is also carried by {} — fix the duplicate \
-                 (`roadmap validate`) before renaming",
+                 (`roadmark validate`) before renaming",
                 path.display()
             );
         }
@@ -218,7 +218,7 @@ mod tests {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        std::env::temp_dir().join(format!("roadmap-cli-rename-{label}-{pid}-{n}"))
+        std::env::temp_dir().join(format!("roadmark-rename-{label}-{pid}-{n}"))
     }
 
     fn feature_src(id: &str, body: &str) -> String {

@@ -351,7 +351,7 @@ mod tests {
     fn validate_skips_when_source_missing() {
         // Pointing `root` at any non-existent `features/` parent should
         // silent-pass — the recipe runs on source-less checkouts too.
-        let tmp = std::env::temp_dir().join("roadmap-cli-skip-missing");
+        let tmp = std::env::temp_dir().join("roadmark-skip-missing");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let roadmap_md = tmp.join("ROADMAP.md");

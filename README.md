@@ -1,11 +1,41 @@
-# roadmap-cli
+# roadmark
 
-Generate a `ROADMAP.md` from a `.roadmap/` directory of TOML-frontmatter
-feature files. The roadmap document becomes a **generated artifact**; the
-source of truth is one small markdown file per feature, so roadmap edits
-skip the usual "edit a big shared file" merge ceremony.
+**Your roadmap as code — compiled, versioned, and validated in CI, so it
+never rots.**
 
-The binary is called `roadmap`.
+> **Naming:** the crate and the binary are both `roadmark`. The GitHub
+> repository is still `bastien-gallay/roadmap-cli` until it is renamed, so
+> the install URLs below keep that path — the artifacts they fetch are now
+> named `roadmark`.
+
+---
+
+> **We believe** the hand-maintained `ROADMAP.md` is rotting debt: every
+> sprint it drifts from the code, lies to contributors, and ends up
+> abandoned in a corner of the repo.
+> **We believe** planning deserves the same rigor as code — compiled,
+> versioned, automatically validated — not held together by human goodwill.
+> **That's why** roadmark compiles your roadmap from atomic feature files
+> and **breaks your CI** the moment it becomes inconsistent. Discipline
+> becomes mechanical, not moral.
+
+Built to scratch my own itch — this repo dogfoods roadmark on its own
+`.roadmap/`.
+
+---
+
+## What it is
+
+roadmark is a **roadmap-as-code** tool for teams that live in their Git
+repo. Instead of coordinating edits on one big roadmap file, each feature is
+its own markdown file with TOML frontmatter. One command compiles them into
+a `ROADMAP.md`; another **guarantees** the roadmap can't become incoherent —
+enforced in CI, not by discipline.
+
+It is **not** a task tracker (leave day-to-day tasks to tools like
+Backlog.md), and **not** a hosted roadmap app (OpenProject / Productboard
+style). It sits in the gap none of them fill: docs-as-code, at the roadmap
+level, with a validation guarantee.
 
 ## Install
 
@@ -14,26 +44,43 @@ Prebuilt binaries (macOS, Linux, Windows — see the
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmap-cli-installer.sh | sh
+  https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmark-installer.sh | sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmap-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmark-installer.ps1 | iex"
 ```
 
-Or with cargo:
+Or with cargo, from the Git repo or a local checkout:
 
 ```sh
 cargo install --git https://github.com/bastien-gallay/roadmap-cli
-```
-
-Or from a local checkout:
-
-```sh
 cargo install --path .
 ```
 
-## Source layout
+All of these install a binary named `roadmark`.
+
+## Quick start
+
+```sh
+roadmark add f-dark-mode        # scaffold a new feature file under .roadmap/features/
+roadmark generate > ROADMAP.md  # compile features into ROADMAP.md
+roadmark validate               # fail if the roadmap is inconsistent — run this in CI
+```
+
+`roadmark --root path/to/.roadmap generate` points at a non-default location.
+
+---
+
+## How it works — three layers
+
+### 1. Author (the body): rich, Git-native roadmap management
+
+One feature = one file. Two people never edit the same line, so the roadmap
+has **zero merge conflicts**. Each feature carries structured frontmatter
+plus a free markdown body whose first non-empty line becomes the catalog
+summary. The taxonomy is **yours**: statuses, effort levels, horizons, and
+areas are declared in `config.toml`, with no process religion baked in.
 
 The tool reads a `.roadmap/` directory (override with `--root`):
 
@@ -41,56 +88,17 @@ The tool reads a `.roadmap/` directory (override with `--root`):
 .roadmap/
 ├── config.toml
 └── features/
-    ├── f-my-feature.md
+    ├── f-dark-mode.md
     ├── f-another-thing.md
     └── ...
 ```
 
-### `config.toml`
-
-```toml
-# Bucket order for sorting and section emission. Earliest cycle first.
-versions = ["v0.1", "v0.2", "v0.3", "Later", "Speculative"]
-
-# H1 heading of the generated ROADMAP.md. Optional, defaults to "Roadmap".
-title = "My Project — Roadmap"
-
-# Optional note appended to the generated "DO NOT EDIT" banner —
-# e.g. a pointer to an ADR or design doc. Optional.
-source_note = "See docs/adr/roadmap-pipeline.md for the design."
-
-# Closed value-sets for the schema fields, owned by your project — the
-# generator stays taxonomy-neutral. `validate` enforces membership.
-[fields.type]
-values = ["feature", "fix", "chore"]
-
-[fields.class]
-values = ["differentiator", "enabler", "table-stakes", "polish", "bet"]
-required_when = { type = "feature" }   # class only on features
-
-[fields.effort]
-values = ["S", "M", "L"]
-
-[fields.area]
-values = ["core", "docs", "cli"]
-multi = true
-
-[fields.horizon]
-values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
-
-[fields.severity]
-values = ["critical", "major", "minor"]
-required_when = { type = "fix" }
-```
-
-### A feature file
-
-Each `features/*.md` is TOML frontmatter fenced by `+++`, followed by a
-markdown body whose first non-empty line becomes the catalog summary:
+Each `features/*.md` is TOML frontmatter fenced by `+++`, followed by the
+markdown body:
 
 ```markdown
 +++
-id = "F-my-feature"
+id = "F-dark-mode"
 type = "feature"        # feature | fix | chore
 class = "enabler"       # feature-only leverage (see [fields.class])
 effort = "M"            # S | M | L
@@ -115,82 +123,135 @@ status = "wip"
 target = ["v0.2"]
 ```
 
-Allowed values for `type`/`class`/`effort`/`area`/`horizon`/`severity` are
-declared per-project in `config.toml` `[fields.*]` (above), not hardcoded in
-the tool — so `roadmap` stays reusable across projects.
-
-### Shipped entries
-
 When a feature flips to `status = "done"`, record its shipping metadata so
 historical order survives every regen:
 
 ```toml
 shipped = { version = "v0.1", date = "2026-07-11", pr = 42 }
-shipped_order = 3   # stable position within the shipped tier
+shipped_order = 3       # stable position within the shipped tier
 ```
 
-### Generated output
+The allowed values for every field are **config-owned, not hardcoded** —
+the generator stays taxonomy-neutral so roadmark is reusable across
+projects:
 
-`ROADMAP.md` has two parts:
+```toml
+# .roadmap/config.toml
+versions = ["v0.1", "v0.2", "v0.3", "Later"]   # sort buckets, earliest first
+title = "My Project — Roadmap"                  # H1 of the generated doc
 
-- **Feature catalog** — one table row per feature: ID, Type, Class/Sev
-  (`class` for features, `severity` for fixes — they share a column),
-  Effort, Area, Horizon, Status, Target, Summary (the body's first
-  non-empty line). The ID links to the feature's detail section.
-- **Details** — one section per feature with the full markdown body,
-  verbatim, prefixed by a `Shipped in <version> (<date>, PR #<n>).`
-  line when the feature carries `shipped` metadata.
+[fields.type]
+values = ["feature", "fix", "chore"]
 
-### Sort order
+[fields.class]
+values = ["differentiator", "enabler", "table-stakes", "polish", "bet"]
+required_when = { type = "feature" }            # class only on features
 
-The catalog is sorted by a total key, so regeneration is byte-stable:
-target bucket (order of `versions` in `config.toml`) → status
-(wip → todo → done) → horizon (declared order of `[fields.horizon].values`)
-→ `shipped_order` → id.
+[fields.effort]
+values = ["S", "M", "L"]
 
-## Commands
+[fields.area]
+values = ["core", "docs", "cli"]
+multi = true
 
-```sh
-roadmap generate > ROADMAP.md   # render to stdout
-roadmap validate                # schema, slug uniqueness, anchor drift
-roadmap add f-my-feature        # scaffold a new feature file
-roadmap rename f-old f-new      # rename a slug, rewriting cross-links
+[fields.horizon]
+values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
+
+[fields.severity]
+values = ["critical", "major", "minor"]
+required_when = { type = "fix" }
 ```
 
-`roadmap --root path/to/.roadmap generate` points at a non-default location.
+### 2. Generate: the roadmap is a compiled artifact
 
-### `validate`
+`roadmark generate` compiles every feature file into a single, formatted
+`ROADMAP.md` on stdout. The output has two parts — a **feature catalog**
+(one table row per feature, ID linking to its detail section) and
+**details** (each feature's full body, verbatim). It is **deterministic**:
+the catalog is sorted by a total key (target bucket → status → horizon →
+`shipped_order` → id), so regeneration is byte-stable and diffs stay clean.
 
-Read-only. Reports:
+### 3. Validate — the guarantee
+
+This is the point. `roadmark validate` is read-only and reports:
 
 - **schema errors** — malformed frontmatter, unknown field values, a
-  single-valued field given a list, a missing `required_when` field, an
-  unknown `[fields.*]` name, or a missing `[fields.horizon]` (does not abort
-  on the first one)
-- **duplicate ids** / **anchor collisions** — two features that would
-  produce the same `<a id="…">` anchor
-- **anchor drift** — anchors in the committed `ROADMAP.md` that a fresh
-  regen would add or drop (catches "forgot to regenerate"). Pass
-  `--accept-drift` to downgrade drift to a warning.
+  single-valued field given a list, a missing `required_when` field
+- **duplicate ids / anchor collisions** — two features that would produce
+  the same `<a id="…">` anchor (checked case-insensitively)
+- **anchor drift** — anchors the committed `ROADMAP.md` is missing or has
+  stale, i.e. you forgot to regenerate (pass `--accept-drift` to downgrade
+  to a warning)
 
 Exit code is non-zero on hard errors, or on drift unless `--accept-drift`.
+Wire it into CI and your roadmap **cannot** silently drift or lie:
 
-### `rename`
+```yaml
+# .github/workflows/roadmap.yml  (sketch)
+- run: roadmark validate    # the PR fails if the roadmap is inconsistent
+```
 
-`roadmap rename <from> <to>` moves `features/<from>.md` to
-`features/<to>.md`, updates its `id`, and rewrites cross-references
-(`[F-old](#f-old)` links, bare id mentions, `f-old.md` path references)
-in every feature body. Matching is whole-token, so ids that merely share
-a prefix (`F-old-widget`) are untouched. It refuses to overwrite an
-existing file, to collide with another feature's anchor, or to run while
-the old id is duplicated across files. Regenerate `ROADMAP.md`
-afterwards.
+`validate` silently passes when `.roadmap/` is absent, so the same recipe
+runs on checkouts without the source tree.
 
-## Slug convention
+## Other commands
 
-New features use `f-<kebab-name>`. The legacy `f<digits>` form is rejected
-by `add` (and as a `rename` target) unless `--allow-legacy-numeric` is
-passed (migration only).
+```sh
+roadmark rename f-old f-new      # move a feature file, rewriting every cross-link
+```
+
+`rename` moves `features/<from>.md` to `features/<to>.md`, updates its `id`,
+and rewrites cross-references (`[F-old](#f-old)` links, bare id mentions,
+`f-old.md` path references) in every feature body. Matching is whole-token,
+so ids that merely share a prefix (`F-old-widget`) are untouched. It refuses
+to overwrite an existing file, to collide with another feature's anchor, or
+to run while the old id is duplicated. Regenerate `ROADMAP.md` afterwards.
+
+New features use the `f-<kebab-name>` slug shape. The legacy `f<digits>`
+form is rejected by `add` (and as a `rename` target) unless
+`--allow-legacy-numeric` is passed (migration only).
+
+---
+
+## Reach — headless roadmap
+
+Your roadmap's source of truth stays in Git; it **projects** to wherever
+your team already works. Like a headless CMS, the canonical content lives in
+one clean, versioned place and is rendered where it's needed.
+
+| Projection | Direction | Status |
+| --- | --- | --- |
+| `ROADMAP.md` | files → doc | ✅ available |
+| GitHub Projects | files → board | 🔭 planned (demand-driven) |
+| Jira | files ↔ tool | 🔭 planned (demand-driven) |
+
+**Design invariant:** the toml/md files are the single source of truth;
+every backend is a projection reached through a **one-way** adapter, and no
+external tool is ever co-authoritative. See
+[`docs/adr/0001-single-source-of-truth.md`](docs/adr/0001-single-source-of-truth.md).
+This is exactly what makes `validate`'s promise unconditional — the source
+is guaranteed clean *before* it propagates anywhere.
+
+---
+
+## Why not just…
+
+- **…a hand-edited `ROADMAP.md`?** It rots. It drifts from the code, causes
+  merge conflicts, and no one trusts it after a month. roadmark makes
+  coherence mechanical.
+- **…a SaaS roadmap tool?** It lives outside the repo, invisible in code
+  review, and disconnected from the code it describes. roadmark keeps the
+  roadmap in the PR — and can still project *to* your SaaS if your team
+  needs it.
+- **…a markdown task manager (Backlog.md, etc.)?** Those track tasks;
+  roadmark plans the roadmap above them. They're complementary, not
+  competing.
+
+## Status
+
+Early and actively dogfooded. The core (`add` / `generate` / `validate` /
+`rename`) is shipped and stable; external projections (GitHub Projects,
+Jira) are planned and demand-driven. Issues and feedback welcome.
 
 ## License
 
