@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-12
+
+### Added
+
+- `roadmap rename <from> <to>` — rename a feature: move its file, update
+  the frontmatter `id`, and rewrite cross-references (`[F-old](#f-old)`
+  links, bare id mentions, and `f-old.md` path references) across every
+  feature body via whole-token replacement. Refuses to overwrite an
+  existing file, to collide with another feature's anchor, or to run
+  while the old id is duplicated; legacy `f<digits>` targets require
+  `--allow-legacy-numeric`.
+
+### Changed
+
+- The catalog Summary column is now a scannable plain-text lead: inline
+  markdown is stripped (code spans, `*`/`_` emphasis, `[text](url)` links
+  folded to text), whitespace collapsed, and the text truncated to 120
+  chars on a word boundary. The full raw body still renders under
+  `## Details`.
+
 ## [0.3.0] - 2026-07-12
 
 ### Added
@@ -60,6 +80,7 @@ Initial release.
 - Prebuilt binaries for 5 targets plus shell/powershell installers
   (cargo-dist).
 
+[0.4.0]: https://github.com/bastien-gallay/roadmap-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bastien-gallay/roadmap-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bastien-gallay/roadmap-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/bastien-gallay/roadmap-cli/releases/tag/v0.1.0
