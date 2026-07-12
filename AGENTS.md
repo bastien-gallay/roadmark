@@ -5,17 +5,17 @@ this repository.
 
 ## What this is
 
-`roadmap-cli` generates a `ROADMAP.md` from a `.roadmap/` directory of
+`roadmark` generates a `ROADMAP.md` from a `.roadmap/` directory of
 TOML-frontmatter feature files (one small markdown file per feature).
 The roadmap document is a **generated artifact**; `.roadmap/` is the
-source of truth. The binary is called `roadmap`; the library crate is
-`roadmap_cli`. See [README.md](README.md) for the file format and CLI
-usage.
+source of truth. The crate, binary, and library are all named `roadmark`
+(the GitHub repository is still `roadmap-cli` until it is renamed). See
+[README.md](README.md) for the file format and CLI usage.
 
 ## Commands
 
 ```bash
-cargo build                        # build the `roadmap` binary
+cargo build                        # build the `roadmark` binary
 cargo test                         # all tests (unit + integration)
 cargo test --test validate         # one integration test file
 cargo test parse_minimal           # one test by name
@@ -27,7 +27,7 @@ cargo run -- --root examples/.roadmap generate
 ```
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy, test, an MSRV check,
-`roadmap validate` (the repo dogfoods its own `.roadmap/`; regenerate
+`roadmark validate` (the repo dogfoods its own `.roadmap/`; regenerate
 `ROADMAP.md` after editing it or the renderer), markdownlint, and
 actionlint — mirror the commands above before pushing.
 Jobs are path-filtered; branch protection should pin the single

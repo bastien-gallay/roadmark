@@ -144,7 +144,7 @@ jobs:
   # `validate` silent-passes when .roadmap/ is absent, so this stays green
   # on checkouts without the source tree.
   roadmap-validate:
-    name: roadmap validate
+    name: roadmark validate
     needs: changes
     if: needs.changes.outputs.roadmap == 'true' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
