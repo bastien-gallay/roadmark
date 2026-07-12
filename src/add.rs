@@ -46,14 +46,23 @@ pub struct AddOutcome {
     pub legacy_numeric_warning: bool,
 }
 
+/// The error for a legacy `f<digits>` slug used where the canonical
+/// `f-<kebab-name>` shape is required. Shared by `add` and `rename` so
+/// the policy text and the `--allow-legacy-numeric` escape hatch stay in
+/// lockstep; `action` is the caller's imperative ("New features must
+/// use" / "Renames must target").
+pub(crate) fn legacy_numeric_error(slug: &str, action: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "slug `{slug}` is the legacy numeric form (`f<digits>`). {action} \
+         `f-<kebab-name>`. If this is part of a one-shot migration, pass \
+         `--allow-legacy-numeric`."
+    )
+}
+
 pub fn add(root: &Path, slug: &str, allow_legacy_numeric: bool) -> Result<AddOutcome> {
     let shape = classify_slug(slug)?;
     if shape == SlugShape::LegacyNumeric && !allow_legacy_numeric {
-        bail!(
-            "slug `{slug}` is the legacy numeric form (`f<digits>`). New features must use \
-             `f-<kebab-name>`. If this is part of a one-shot migration, pass \
-             `--allow-legacy-numeric`."
-        );
+        return Err(legacy_numeric_error(slug, "New features must use"));
     }
 
     let features_dir = root.join("features");

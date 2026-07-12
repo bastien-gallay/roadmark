@@ -266,7 +266,11 @@ fn summary(body: &str) -> &str {
 
 /// HTML id for the anchor: lowercase the feature id.
 /// Matches GitHub's `<a id="f46">` / `<a id="f-foo">` convention.
-fn anchor_id(id: &str) -> String {
+///
+/// Single definition of the id → anchor rule, shared by the renderer,
+/// `validate` (collision detection), and `rename` (link rewriting) so
+/// the three can never disagree on what a feature's anchor is.
+pub(crate) fn anchor_id(id: &str) -> String {
     id.to_lowercase()
 }
 

@@ -9,8 +9,8 @@
 //! mentions, and `f-old.md` path references all update while ids that
 //! merely share a prefix (`F-old-widget`) are left alone.
 
-use crate::add::{classify_slug, derive_id, SlugShape};
-use crate::{feature_md_paths, parse_feature};
+use crate::add::{classify_slug, derive_id, legacy_numeric_error, SlugShape};
+use crate::{anchor_id, feature_md_paths, parse_feature};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -38,11 +38,7 @@ pub fn rename(
     classify_slug(from).with_context(|| format!("invalid `from` slug `{from}`"))?;
     let to_shape = classify_slug(to).with_context(|| format!("invalid `to` slug `{to}`"))?;
     if to_shape == SlugShape::LegacyNumeric && !allow_legacy_numeric {
-        bail!(
-            "slug `{to}` is the legacy numeric form (`f<digits>`). Renames must target \
-             `f-<kebab-name>`. If this is part of a one-shot migration, pass \
-             `--allow-legacy-numeric`."
-        );
+        return Err(legacy_numeric_error(to, "Renames must target"));
     }
 
     let features_dir = root.join("features");
@@ -98,14 +94,14 @@ pub fn rename(
             continue;
         }
         let Ok(f) = parse_feature(src) else { continue };
-        if f.frontmatter.id.to_lowercase() == new_id.to_lowercase() {
+        if anchor_id(&f.frontmatter.id) == anchor_id(&new_id) {
             bail!(
                 "id `{new_id}` would collide with `{}` ({})",
                 f.frontmatter.id,
                 path.display()
             );
         }
-        if f.frontmatter.id.to_lowercase() == old_id.to_lowercase() {
+        if anchor_id(&f.frontmatter.id) == anchor_id(&old_id) {
             bail!(
                 "id `{old_id}` is also carried by {} — fix the duplicate \
                  (`roadmap validate`) before renaming",
@@ -157,8 +153,8 @@ pub fn rename(
 /// old filename slug when it diverged from the id. Pure string → string
 /// so it unit-tests without a filesystem.
 pub fn rewrite_refs(src: &str, old_id: &str, new_id: &str, from: &str, to: &str) -> String {
-    let old_anchor = old_id.to_lowercase();
-    let new_anchor = new_id.to_lowercase();
+    let old_anchor = anchor_id(old_id);
+    let new_anchor = anchor_id(new_id);
     // When the old id is its own anchor form (already lowercase), every
     // occurrence may be a `#…` link target, and anchors are lowercased
     // ids — so substitute the anchor form of the new id, keeping links

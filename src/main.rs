@@ -106,14 +106,21 @@ fn generate(root: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// Deprecation warning shared by `add` and `rename` when a legacy
+/// `f<digits>` slug is accepted under `--allow-legacy-numeric`. `noun`
+/// is the caller's subject ("features" / "slugs").
+fn warn_legacy_numeric(slug: &str, noun: &str) {
+    eprintln!(
+        "warning: `{slug}` uses the legacy `f<digits>` slug shape — \
+         deprecated, only intended for one-shot migration. New \
+         {noun} should use `f-<kebab-name>`."
+    );
+}
+
 fn add_cmd(root: &std::path::Path, slug: &str, allow_legacy_numeric: bool) -> Result<ExitCode> {
     let outcome = roadmap_cli::add::add(root, slug, allow_legacy_numeric)?;
     if outcome.legacy_numeric_warning {
-        eprintln!(
-            "warning: `{slug}` uses the legacy `f<digits>` slug shape — \
-             deprecated, only intended for one-shot migration. New \
-             features should use `f-<kebab-name>`."
-        );
+        warn_legacy_numeric(slug, "features");
     }
     println!("created {}", outcome.path.display());
     Ok(ExitCode::SUCCESS)
@@ -127,11 +134,7 @@ fn rename_cmd(
 ) -> Result<ExitCode> {
     let outcome = roadmap_cli::rename::rename(root, from, to, allow_legacy_numeric)?;
     if outcome.legacy_numeric_warning {
-        eprintln!(
-            "warning: `{to}` uses the legacy `f<digits>` slug shape — \
-             deprecated, only intended for one-shot migration. New \
-             slugs should use `f-<kebab-name>`."
-        );
+        warn_legacy_numeric(to, "slugs");
     }
     println!(
         "renamed {} -> {}",

@@ -5,7 +5,8 @@
 //! parse error, so a single run surfaces every problem.
 
 use crate::{
-    feature_md_paths, load_config, parse_feature, render, sort_features, Config, Frontmatter,
+    anchor_id, feature_md_paths, load_config, parse_feature, render, sort_features, Config,
+    Frontmatter,
 };
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeSet, HashMap};
@@ -160,7 +161,7 @@ pub fn validate(root: &Path, roadmap_md: &Path) -> Result<ValidationReport> {
     let mut anchor_to_ids: HashMap<String, BTreeSet<String>> = HashMap::new();
     for f in &features {
         anchor_to_ids
-            .entry(f.frontmatter.id.to_lowercase())
+            .entry(anchor_id(&f.frontmatter.id))
             .or_default()
             .insert(f.frontmatter.id.clone());
     }
