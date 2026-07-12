@@ -3,6 +3,8 @@
   // / anchor HTML.
   "config": {
     "MD013": { "line_length": 80, "tables": false, "code_blocks": false },
+    // Keep a Changelog repeats "### Added"/"### Changed" per version.
+    "MD024": { "siblings_only": true },
     "MD033": false
   },
   // Lint every doc by default, so a bare `markdownlint-cli2` mirrors CI

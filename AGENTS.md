@@ -80,8 +80,9 @@ Subcommand modules follow the same split:
 ## Design decisions to preserve
 
 - **Feature bodies stay unparsed `String`s.** A markdown parser would
-  round-trip poorly; the renderer only needs the first non-empty line
-  (the catalog Summary). Don't introduce a markdown AST.
+  round-trip poorly; the renderer uses the first non-empty line as the
+  catalog Summary and emits the full body verbatim in the Details
+  section. Don't introduce a markdown AST.
 - **Output is deterministic.** `load_features` walks in filename order
   and `sort_features` uses a total key (target bucket → status →
   horizon → `shipped_order` → id). Any new emission must keep

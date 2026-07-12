@@ -4,13 +4,69 @@
 
 ## Feature catalog
 
-| ID | Area | Status | Target | Summary |
-|---|---|---|---|---|
-| <a id="f-generate"></a>[F-generate](#f-generate) | core, cli | ✅ | v0.1 | `roadmap generate` renders a deterministic `ROADMAP.md` from the `.roadmap/` tree. |
-| <a id="f-validate"></a>[F-validate](#f-validate) | core, cli | ✅ | v0.1 | `roadmap validate` reports schema errors, duplicate ids, anchor collisions and anchor drift — all issues at once, read-only. |
-| <a id="f-add"></a>[F-add](#f-add) | cli | ✅ | v0.1 | `roadmap add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>` slugs; legacy `f<digits>` behind `--allow-legacy-numeric`). |
-| <a id="f-prebuilt-binaries"></a>[F-prebuilt-binaries](#f-prebuilt-binaries) | release | ✅ | v0.1 | cargo-dist release pipeline: binaries for 5 targets plus shell/powershell installers on every `v<semver>` tag. |
-| <a id="f-crlf-parsing"></a>[F-crlf-parsing](#f-crlf-parsing) | core | ✅ | v0.1 | CRLF-authored feature files parse correctly (Windows checkouts turned `+++` fences into `+++\r` and broke `split_frontmatter`). |
-| <a id="f-schema-v2"></a>[F-schema-v2](#f-schema-v2) | core | ✅ | v0.2 | Config-owned field taxonomies: `type`/`class`/`effort`/`area`/`horizon`/`severity` values are declared per-project in `config.toml` `[fields.*]`, not hardcoded. |
-| <a id="f-rename"></a>[F-rename](#f-rename) | cli, core | ☐ | v0.3 | Implement `roadmap rename` (currently a CLI stub): rename a feature id, move its file, and rewrite cross-references so anchors stay consistent. |
-| <a id="f-init"></a>[F-init](#f-init) | cli, docs | ☐ | Later | `roadmap init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project. |
+| ID | Type | Class/Sev | Effort | Area | Horizon | Status | Target | Summary |
+|---|---|---|---|---|---|---|---|---|
+| [F-generate](#f-generate) | feature | differentiator | L | core, cli | shipped | ✅ | v0.1 | `roadmap generate` renders a deterministic `ROADMAP.md` from the `.roadmap/` tree. |
+| [F-validate](#f-validate) | feature | enabler | M | core, cli | shipped | ✅ | v0.1 | `roadmap validate` reports schema errors, duplicate ids, anchor collisions and anchor drift — all issues at once, read-only. |
+| [F-add](#f-add) | feature | table-stakes | S | cli | shipped | ✅ | v0.1 | `roadmap add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>` slugs; legacy `f<digits>` behind `--allow-legacy-numeric`). |
+| [F-prebuilt-binaries](#f-prebuilt-binaries) | chore | — | M | release | shipped | ✅ | v0.1 | cargo-dist release pipeline: binaries for 5 targets plus shell/powershell installers on every `v<semver>` tag. |
+| [F-crlf-parsing](#f-crlf-parsing) | fix | major | S | core | shipped | ✅ | v0.1 | CRLF-authored feature files parse correctly (Windows checkouts turned `+++` fences into `+++\r` and broke `split_frontmatter`). |
+| [F-schema-v2](#f-schema-v2) | feature | differentiator | L | core | shipped | ✅ | v0.2 | Config-owned field taxonomies: `type`/`class`/`effort`/`area`/`horizon`/`severity` values are declared per-project in `config.toml` `[fields.*]`, not hardcoded. |
+| [F-rename](#f-rename) | feature | table-stakes | M | cli, core | next | ☐ | v0.3 | Implement `roadmap rename` (currently a CLI stub): rename a feature id, move its file, and rewrite cross-references so anchors stay consistent. |
+| [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | `roadmap init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project. |
+
+## Details
+
+### <a id="f-generate"></a>F-generate
+
+Shipped in v0.1.0 (2026-07-11).
+
+`roadmap generate` renders a deterministic `ROADMAP.md` from the `.roadmap/` tree.
+
+The pure core (`split_frontmatter` → `parse_feature` → `sort_features` →
+`render`) is string-in/string-out so it stays snapshot-testable; only
+`load_config` / `load_features` touch the filesystem.
+
+### <a id="f-validate"></a>F-validate
+
+Shipped in v0.1.0 (2026-07-11).
+
+`roadmap validate` reports schema errors, duplicate ids, anchor collisions and anchor drift — all issues at once, read-only.
+
+Silent-passes when `.roadmap/` is absent so the same recipe runs on
+checkouts without the source tree (CI, worktrees).
+
+### <a id="f-add"></a>F-add
+
+Shipped in v0.1.0 (2026-07-11).
+
+`roadmap add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>` slugs; legacy `f<digits>` behind `--allow-legacy-numeric`).
+
+### <a id="f-prebuilt-binaries"></a>F-prebuilt-binaries
+
+Shipped in v0.1.0 (2026-07-11).
+
+cargo-dist release pipeline: binaries for 5 targets plus shell/powershell installers on every `v<semver>` tag.
+
+### <a id="f-crlf-parsing"></a>F-crlf-parsing
+
+Shipped in v0.1.0 (2026-07-11).
+
+CRLF-authored feature files parse correctly (Windows checkouts turned `+++` fences into `+++\r` and broke `split_frontmatter`).
+
+### <a id="f-schema-v2"></a>F-schema-v2
+
+Shipped in v0.2.0 (2026-07-12, PR #1).
+
+Config-owned field taxonomies: `type`/`class`/`effort`/`area`/`horizon`/`severity` values are declared per-project in `config.toml` `[fields.*]`, not hardcoded.
+
+Closed sets, `multi` shape, `required_when` conditions with AND semantics;
+horizon sort order comes from the declared value order.
+
+### <a id="f-rename"></a>F-rename
+
+Implement `roadmap rename` (currently a CLI stub): rename a feature id, move its file, and rewrite cross-references so anchors stay consistent.
+
+### <a id="f-init"></a>F-init
+
+`roadmap init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project.

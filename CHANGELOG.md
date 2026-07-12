@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The generated `ROADMAP.md` now surfaces the schema-v2 fields: the
+  catalog table gains Type, Class/Sev, Effort and Horizon columns, and
+  a new Details section renders each feature's full markdown body plus
+  a "Shipped in …" line from the `shipped` metadata.
+
 ## [0.2.0] - 2026-07-12
 
 Schema v2 — **breaking change** to the feature-file frontmatter.
@@ -51,5 +60,6 @@ Initial release.
 - Prebuilt binaries for 5 targets plus shell/powershell installers
   (cargo-dist).
 
+[Unreleased]: https://github.com/bastien-gallay/roadmap-cli/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/bastien-gallay/roadmap-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/bastien-gallay/roadmap-cli/releases/tag/v0.1.0

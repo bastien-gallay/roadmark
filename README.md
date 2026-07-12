@@ -129,6 +129,18 @@ shipped = { version = "v0.1", date = "2026-07-11", pr = 42 }
 shipped_order = 3   # stable position within the shipped tier
 ```
 
+### Generated output
+
+`ROADMAP.md` has two parts:
+
+- **Feature catalog** — one table row per feature: ID, Type, Class/Sev
+  (`class` for features, `severity` for fixes — they share a column),
+  Effort, Area, Horizon, Status, Target, Summary (the body's first
+  non-empty line). The ID links to the feature's detail section.
+- **Details** — one section per feature with the full markdown body,
+  verbatim, prefixed by a `Shipped in <version> (<date>, PR #<n>).`
+  line when the feature carries `shipped` metadata.
+
 ### Sort order
 
 The catalog is sorted by a total key, so regeneration is byte-stable:

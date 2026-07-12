@@ -290,24 +290,79 @@ pub fn render(features: &[Feature], config: &Config) -> String {
     }
     out.push_str(" -->\n\n");
     out.push_str("## Feature catalog\n\n");
-    out.push_str("| ID | Area | Status | Target | Summary |\n");
-    out.push_str("|---|---|---|---|---|\n");
+    out.push_str(
+        "| ID | Type | Class/Sev | Effort | Area | Horizon | Status | Target | Summary |\n",
+    );
+    out.push_str("|---|---|---|---|---|---|---|---|---|\n");
     for f in features {
         let fm = &f.frontmatter;
         let aid = anchor_id(&fm.id);
         let target = fm.target.join(" → ");
         let area = fm.area.join(", ");
+        // `class` (feature-only) and `severity` (fix-only) are mutually
+        // exclusive by taxonomy, so they share one column.
+        let class_sev = fm
+            .class
+            .as_deref()
+            .or(fm.severity.as_deref())
+            .unwrap_or("—");
         let _ = writeln!(
             out,
-            "| <a id=\"{aid}\"></a>[{id}](#{aid}) | {area} | {status} | {target} | {summary} |",
+            "| [{id}](#{aid}) | {ty} | {class_sev} | {effort} | {area} | {horizon} | {status} | {target} | {summary} |",
             id = fm.id,
+            ty = escape_cell(&fm.item_type),
+            class_sev = escape_cell(class_sev),
+            effort = escape_cell(fm.effort.as_deref().unwrap_or("—")),
             area = escape_cell(&area),
+            horizon = escape_cell(&fm.horizon),
             status = fm.status.glyph(),
             target = escape_cell(&target),
             summary = escape_cell(summary(&f.body)),
         );
     }
+    if !features.is_empty() {
+        out.push_str("\n## Details\n");
+        for f in features {
+            let fm = &f.frontmatter;
+            // The `<a id>` anchor lives on the detail heading, so the
+            // catalog's ID link jumps here (and anchor drift still sees
+            // one anchor per feature).
+            let _ = write!(
+                out,
+                "\n### <a id=\"{aid}\"></a>{id}\n\n",
+                aid = anchor_id(&fm.id),
+                id = fm.id
+            );
+            if let Some(line) = shipped_line(&fm.shipped) {
+                let _ = writeln!(out, "{line}\n");
+            }
+            let body = f.body.trim();
+            if !body.is_empty() {
+                let _ = writeln!(out, "{body}");
+            }
+        }
+    }
     out
+}
+
+/// One-line shipping record for the Details section, or `None` when the
+/// feature carries no shipped metadata (`version` is the marker field).
+fn shipped_line(shipped: &Shipped) -> Option<String> {
+    if shipped.version.is_empty() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if !shipped.date.is_empty() {
+        parts.push(shipped.date.clone());
+    }
+    if shipped.pr != 0 {
+        parts.push(format!("PR #{}", shipped.pr));
+    }
+    Some(if parts.is_empty() {
+        format!("Shipped in {}.", shipped.version)
+    } else {
+        format!("Shipped in {} ({}).", shipped.version, parts.join(", "))
+    })
 }
 
 /// List `*.md` files directly under `dir`, in filename order.
@@ -540,10 +595,69 @@ type = \"feature\"\n";
         f.frontmatter.area = vec!["CLI | TUI".into()];
         f.body = "Support `a | b` operator.".into();
         let out = render(&[f], &cfg());
-        // The row must carry exactly the 5 intended column separators plus
+        // The row must carry exactly the 9 intended column separators plus
         // the two escaped literals — never a raw unescaped `|` in the text.
         assert!(out.contains("CLI \\| TUI"));
         assert!(out.contains("Support `a \\| b` operator."));
+    }
+
+    #[test]
+    fn render_emits_schema_fields_in_catalog_row() {
+        let mut f = feat("f-x", Status::Todo, "next", "v0.2.x");
+        f.frontmatter.class = Some("enabler".into());
+        f.frontmatter.effort = Some("M".into());
+        let out = render(&[f], &cfg());
+        assert!(out.contains("| [f-x](#f-x) | feature | enabler | M | arch | next | ☐ | v0.2.x |"));
+    }
+
+    #[test]
+    fn render_shows_severity_for_fixes_in_class_sev_column() {
+        let mut f = feat("f-broken", Status::Wip, "now", "v0.2.x");
+        f.frontmatter.item_type = "fix".into();
+        f.frontmatter.severity = Some("major".into());
+        let out = render(&[f], &cfg());
+        assert!(out.contains("| fix | major | — |"));
+    }
+
+    #[test]
+    fn render_emits_details_with_full_body_and_shipped_line() {
+        let mut f = feat("f-x", Status::Done, "shipped", "v0.2.x");
+        f.body = "Summary line.\n\nSecond paragraph with detail.\n".into();
+        f.frontmatter.shipped = Shipped {
+            version: "v0.2.0".into(),
+            date: "2026-07-12".into(),
+            pr: 1,
+        };
+        let out = render(&[f], &cfg());
+        assert!(out.contains("## Details"));
+        assert!(out.contains("### <a id=\"f-x\"></a>f-x"));
+        assert!(out.contains("Shipped in v0.2.0 (2026-07-12, PR #1)."));
+        assert!(out.contains("Second paragraph with detail."));
+    }
+
+    #[test]
+    fn render_omits_details_section_when_no_features() {
+        let out = render(&[], &cfg());
+        assert!(!out.contains("## Details"));
+    }
+
+    #[test]
+    fn shipped_line_variants() {
+        let full = Shipped {
+            version: "v1".into(),
+            date: "2026-01-01".into(),
+            pr: 7,
+        };
+        assert_eq!(
+            shipped_line(&full).unwrap(),
+            "Shipped in v1 (2026-01-01, PR #7)."
+        );
+        let bare = Shipped {
+            version: "v1".into(),
+            ..Shipped::default()
+        };
+        assert_eq!(shipped_line(&bare).unwrap(), "Shipped in v1.");
+        assert!(shipped_line(&Shipped::default()).is_none());
     }
 
     #[test]
