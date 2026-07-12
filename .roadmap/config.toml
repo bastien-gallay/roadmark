@@ -1,0 +1,29 @@
+# Bucket order for sorting and section emission. Earliest cycle first.
+versions = ["v0.1", "v0.2", "v0.3", "Later"]
+
+title = "roadmap-cli — Roadmap"
+
+source_note = "Edit files under .roadmap/, then run `roadmap generate > ROADMAP.md`."
+
+# Closed value-sets for the schema fields (schema v2). `validate` enforces
+# membership and the `required_when` conditionals below.
+[fields.type]
+values = ["feature", "fix", "chore"]
+
+[fields.class]
+values = ["differentiator", "enabler", "table-stakes", "polish", "bet"]
+required_when = { type = "feature" }
+
+[fields.effort]
+values = ["S", "M", "L"]
+
+[fields.area]
+values = ["core", "cli", "docs", "release"]
+multi = true
+
+[fields.horizon]
+values = ["now", "next", "later", "parked", "shipped"]
+
+[fields.severity]
+values = ["critical", "major", "minor"]
+required_when = { type = "fix" }

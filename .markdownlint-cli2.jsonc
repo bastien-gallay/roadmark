@@ -9,12 +9,15 @@
   // (whose action passes the same glob explicitly).
   "globs": ["**/*.md"],
   // CLAUDE.md is only an `@AGENTS.md` import pointer, not prose. Feature
-  // files (fixtures + examples) are frontmatter data whose body starts
-  // with a summary paragraph by design, not an H1.
+  // files (fixtures + examples + our own .roadmap/) are frontmatter data
+  // whose body starts with a summary paragraph by design, not an H1.
+  // ROADMAP.md is a generated artifact.
   "ignores": [
     "target/**",
     "node_modules/**",
     "CLAUDE.md",
+    "ROADMAP.md",
+    ".roadmap/features/**",
     "examples/.roadmap/features/**",
     "tests/fixtures/**"
   ]
