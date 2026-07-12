@@ -9,6 +9,20 @@ The binary is called `roadmap`.
 
 ## Install
 
+Prebuilt binaries (macOS, Linux, Windows — see the
+[latest release](https://github.com/bastien-gallay/roadmap-cli/releases/latest)):
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmap-cli-installer.sh | sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/bastien-gallay/roadmap-cli/releases/latest/download/roadmap-cli-installer.ps1 | iex"
+```
+
+Or with cargo:
+
 ```sh
 cargo install --git https://github.com/bastien-gallay/roadmap-cli
 ```
@@ -89,9 +103,38 @@ target = ["v0.2"]       # first entry drives the sort bucket
 One-paragraph summary — the first non-empty line lands in the Summary column.
 ```
 
+A fix carries a `severity` instead of a `class`:
+
+```toml
+id = "F-broken-anchor"
+type = "fix"
+severity = "major"      # fix-only (see [fields.severity])
+area = ["core"]
+horizon = "now"
+status = "wip"
+target = ["v0.2"]
+```
+
 Allowed values for `type`/`class`/`effort`/`area`/`horizon`/`severity` are
 declared per-project in `config.toml` `[fields.*]` (above), not hardcoded in
 the tool — so `roadmap` stays reusable across projects.
+
+### Shipped entries
+
+When a feature flips to `status = "done"`, record its shipping metadata so
+historical order survives every regen:
+
+```toml
+shipped = { version = "v0.1", date = "2026-07-11", pr = 42 }
+shipped_order = 3   # stable position within the shipped tier
+```
+
+### Sort order
+
+The catalog is sorted by a total key, so regeneration is byte-stable:
+target bucket (order of `versions` in `config.toml`) → status
+(wip → todo → done) → horizon (declared order of `[fields.horizon].values`)
+→ `shipped_order` → id.
 
 ## Commands
 
