@@ -72,6 +72,21 @@ impl Frontmatter {
     pub const FIELD_NAMES: &'static [&'static str] =
         &["type", "class", "effort", "area", "horizon", "severity"];
 
+    /// The axes a feature may leave out **entirely** — the ones ADR-0002 is
+    /// about. `type` and `area` are absent from this list because they are
+    /// structurally mandatory: every frontmatter carries them, so "is this
+    /// axis in use?" is always yes for those two and could never follow the
+    /// data.
+    ///
+    /// This is what `validate` requires a `[fields.*]` declaration for when
+    /// the tree uses the axis. Scoping it here rather than to all of
+    /// [`Self::FIELD_NAMES`] is deliberate: requiring a declared value set
+    /// for `type`/`area` would force *every* project to enumerate a
+    /// taxonomy for them, which is a policy this tool does not get to
+    /// impose. Declaring them is still supported and still enforced.
+    pub const OMISSIBLE_FIELD_NAMES: &'static [&'static str] =
+        &["class", "effort", "horizon", "severity"];
+
     /// Values a named schema field currently holds, for config-driven
     /// validation. `None` = this generator does not model a field of that
     /// name (config references something unknown → the caller skips it).
@@ -379,6 +394,41 @@ fn truncate_on_word_boundary(s: &str, max_chars: usize) -> String {
     format!("{} …", cut.trim_end())
 }
 
+/// The values a feature carries for one config-declared schema axis (a name
+/// in [`Frontmatter::FIELD_NAMES`]), with blank entries dropped — a field
+/// present but empty carries nothing.
+///
+/// Everything that asks "does this feature hold this axis?" goes through
+/// [`Frontmatter::field_values`] here, so there is exactly one answer.
+pub(crate) fn axis_values(fm: &Frontmatter, axis: &str) -> Vec<String> {
+    fm.field_values(axis)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|v| !v.trim().is_empty())
+        .collect()
+}
+
+/// Does this project hold `axis` at all — does *any* feature carry a value
+/// for it?
+///
+/// The single predicate behind two decisions that must never disagree
+/// ([ADR-0002](../docs/adr/0002-partial-schema-adoption.md)):
+///
+/// - `render` emits an axis column iff the axis is in use;
+/// - `validate` requires a `[fields.<axis>]` declaration iff the axis is in
+///   use — declaring an axis nothing carries is the second home for a value
+///   that ADR exists to remove.
+///
+/// `render` asks the question of its own cell matrix rather than calling
+/// this (its `Class/Sev` column merges two axes, and probing the matrix is
+/// what keeps the probe and the emitted cells from diverging), but both
+/// sides read [`axis_values`], so "carries a value" means one thing.
+pub(crate) fn axis_in_use(features: &[Feature], axis: &str) -> bool {
+    features
+        .iter()
+        .any(|f| !axis_values(&f.frontmatter, axis).is_empty())
+}
+
 /// HTML id for the anchor: lowercase the feature id.
 /// Matches GitHub's `<a id="f46">` / `<a id="f-foo">` convention.
 ///
@@ -408,6 +458,15 @@ struct CatalogColumn {
     value: fn(&Feature) -> Option<String>,
 }
 
+/// One axis column's cell: the feature's values for `axis`, joined, or
+/// `None` when it carries none — the `None` that makes the column
+/// conditional. Reads [`axis_values`], the same accessor `validate` uses to
+/// decide whether `[fields.<axis>]` is required.
+fn axis_cell(f: &Feature, axis: &str) -> Option<String> {
+    let values = axis_values(&f.frontmatter, axis);
+    (!values.is_empty()).then(|| escape_cell(&values.join(", ")))
+}
+
 /// The catalog columns in emission order. Axis columns are conditional:
 /// a project that never uses an axis gets no column for it.
 fn catalog_columns() -> [CatalogColumn; 9] {
@@ -425,41 +484,29 @@ fn catalog_columns() -> [CatalogColumn; 9] {
         CatalogColumn {
             header: "Type",
             always: false,
-            value: |f| {
-                let t = &f.frontmatter.item_type;
-                (!t.is_empty()).then(|| escape_cell(t))
-            },
+            value: |f| axis_cell(f, "type"),
         },
         CatalogColumn {
             header: "Class/Sev",
             always: false,
             // `class` (feature-only) and `severity` (fix-only) are
             // mutually exclusive by taxonomy, so they share one column.
-            value: |f| {
-                f.frontmatter
-                    .class
-                    .as_deref()
-                    .or(f.frontmatter.severity.as_deref())
-                    .map(escape_cell)
-            },
+            value: |f| axis_cell(f, "class").or_else(|| axis_cell(f, "severity")),
         },
         CatalogColumn {
             header: "Effort",
             always: false,
-            value: |f| f.frontmatter.effort.as_deref().map(escape_cell),
+            value: |f| axis_cell(f, "effort"),
         },
         CatalogColumn {
             header: "Area",
             always: false,
-            value: |f| {
-                let a = &f.frontmatter.area;
-                (!a.is_empty()).then(|| escape_cell(&a.join(", ")))
-            },
+            value: |f| axis_cell(f, "area"),
         },
         CatalogColumn {
             header: "Horizon",
             always: false,
-            value: |f| f.frontmatter.horizon.as_deref().map(escape_cell),
+            value: |f| axis_cell(f, "horizon"),
         },
         CatalogColumn {
             header: "Status",

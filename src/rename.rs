@@ -175,7 +175,10 @@ pub fn rewrite_refs(src: &str, old_id: &str, new_id: &str, from: &str, to: &str)
 
 /// Slug/id characters — a match flanked by any of these is a longer
 /// token (`F-old-widget`), not a reference to `F-old`.
-fn is_token_char(c: char) -> bool {
+///
+/// Shared with `validate`'s dangling-reference scan, so "where does a
+/// feature reference end" has one answer for the rewriter and the checker.
+pub(crate) fn is_token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '-'
 }
 

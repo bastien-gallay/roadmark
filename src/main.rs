@@ -7,7 +7,8 @@
 //! - `rename`: rename a slug, moving the file and rewriting cross-links
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::parser::ValueSource;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -84,7 +85,16 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode> {
-    let cli = Cli::parse();
+    // Parse via `ArgMatches` rather than `Cli::parse()` so `validate` can
+    // ask whether `--root` was *typed* or defaulted — the derived struct
+    // holds the value but not its provenance, and the two mean opposite
+    // things when the tree is missing (see `validate::validate`).
+    let matches = Cli::command().get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(e) => e.exit(),
+    };
+    let root_explicit = matches.value_source("root") == Some(ValueSource::CommandLine);
     match cli.command {
         Command::Generate { output } => {
             generate(&cli.root, output.as_deref())?;
@@ -93,7 +103,7 @@ fn run() -> Result<ExitCode> {
         Command::Validate {
             roadmap_md,
             accept_drift,
-        } => validate_cmd(&cli.root, &roadmap_md, accept_drift),
+        } => validate_cmd(&cli.root, &roadmap_md, accept_drift, root_explicit),
         Command::Add {
             slug,
             allow_legacy_numeric,
@@ -112,8 +122,13 @@ fn run() -> Result<ExitCode> {
 /// first byte is written, and the file path goes through an atomic replace,
 /// so a failing run never destroys the roadmap it was asked to regenerate.
 fn generate(root: &std::path::Path, output: Option<&std::path::Path>) -> Result<()> {
-    let config = roadmark::load_config(root).context("loading config.toml")?;
-    let mut features = roadmark::load_features(root).context("loading features/")?;
+    // Name the resolved root, not just the file: with a mistyped `--root`
+    // the failure is "that tree isn't there", which is the same story
+    // `validate` now tells about the same mistake (#31).
+    let config = roadmark::load_config(root)
+        .with_context(|| format!("reading roadmap source at {}", root.display()))?;
+    let mut features = roadmark::load_features(root)
+        .with_context(|| format!("reading roadmap source at {}", root.display()))?;
     roadmark::sort_features(&mut features, &config);
     let rendered = roadmark::render(&features, &config);
     match output {
@@ -168,8 +183,9 @@ fn validate_cmd(
     root: &std::path::Path,
     roadmap_md: &std::path::Path,
     accept_drift: bool,
+    root_explicit: bool,
 ) -> Result<ExitCode> {
-    let report = roadmark::validate::validate(root, roadmap_md)?;
+    let report = roadmark::validate::validate(root, roadmap_md, root_explicit)?;
     print!("{}", report.to_text());
     if report.has_hard_errors() {
         return Ok(ExitCode::FAILURE);

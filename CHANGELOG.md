@@ -40,6 +40,58 @@ and this project adheres to
   others — see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md) for
   why. Closes #37.
 
+- **`validate` reports warnings as well as errors.** A second, soft tier:
+  warnings are printed and counted but never change the exit code. They
+  name work a human still owes the file rather than a tree that would
+  generate a wrong roadmap. A run with warnings and no errors prints
+  `validate: no errors, N warning(s)` and exits 0.
+- **`validate` reports cross-references to feature ids nothing declares.**
+  A body may say `F-terminal-images` or link `[x](#f-jsonl-viewer)`; if the
+  target was deleted, mistyped, or never created, the generated roadmap
+  shipped a dead link and `validate` said clean. Anchor drift could not
+  catch it — drift compares the regen against the committed file, and the
+  regen embeds the same dead link. The **link** form is a hard error (it
+  ships a broken anchor); a **bare** `F-…` mention is a warning, because
+  prose legitimately names things that are not features. Matching goes
+  through `anchor_id` and the same token-boundary rule `rename` uses, so
+  `F-foo` never matches inside `F-foobar`.
+  ([#36](https://github.com/bastien-gallay/roadmark/issues/36))
+- **`validate` reports a feature with an empty body.** The body *is* the
+  summary field — `render` takes the catalog `Summary` cell from its first
+  non-empty line — so an empty one renders a row that links somewhere and
+  says nothing. A warning, not an error: scaffolding files first and
+  filling bodies second is the normal shape of a migration. The threshold
+  is emptiness only; no minimum length is invented.
+  ([#38](https://github.com/bastien-gallay/roadmark/issues/38))
+
+### Fixed
+
+- **`validate` no longer requires `[fields.horizon]` when no feature
+  carries a horizon.** ADR-0002 settled that a project may leave an axis
+  out entirely, but the validator still demanded the section
+  unconditionally — so the board-canonical project that change unblocked
+  could not pass the gate, and the workaround was to declare five values
+  nothing used and nothing rendered. The rule is now "a `[fields.X]`
+  declaration is required iff some feature actually carries `X`", using
+  the same predicate that decides whether `render` emits the column, so
+  the validator and the renderer cannot disagree about which axes a
+  project holds. Scoped to the axes a feature may actually omit
+  (`class`, `effort`, `horizon`, `severity`) — `type` and `area` are
+  structurally mandatory, so requiring a declared value set for them
+  would impose a taxonomy on every project rather than follow the data.
+  ([#34](https://github.com/bastien-gallay/roadmark/issues/34))
+- **`validate` no longer silent-passes an explicitly wrong `--root`.**
+  Skipping when `.roadmap/` is absent is deliberate and stays — the same
+  CI recipe must run on checkouts without the source tree. But it also
+  swallowed a `--root` the user typed, so a renamed or mistyped path in a
+  workflow file switched the roadmap guarantee off and kept the job
+  green. An explicitly passed `--root` with no `features/` under it is now
+  a hard error naming the resolved path; the defaulted root is unchanged
+  and covered by a regression test. `generate`'s diagnostic now names the
+  resolved root too, so both subcommands tell the same story about the
+  same mistake.
+  ([#31](https://github.com/bastien-gallay/roadmark/issues/31))
+
 ### Changed
 
 - The README quick start, the `rename` hint, and the generated banner's

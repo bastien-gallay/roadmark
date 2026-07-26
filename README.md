@@ -223,17 +223,38 @@ its column, with `—` for features that carry no value.
 
 ### 3. Validate — the guarantee
 
-This is the point. `roadmark validate` is read-only and reports:
+This is the point. `roadmark validate` is read-only. It reports two tiers.
+
+**Hard errors** — the tree would generate a roadmap that is *wrong*. These
+fail the run:
 
 - **schema errors** — malformed frontmatter, unknown field values, a
-  single-valued field given a list, a missing `required_when` field
+  single-valued field given a list, a missing `required_when` field, or a
+  `[fields.X]` declaration missing for an axis some feature actually
+  carries
 - **duplicate ids / anchor collisions** — two features that would produce
   the same `<a id="…">` anchor (checked case-insensitively)
+- **dangling links** — a body links `](#f-something)` at a feature id
+  nothing declares, so the generated roadmap ships a dead anchor. Anchor
+  drift cannot catch this: the regen contains the same dead link, so the
+  two agree
+- **a missing `--root`** — see below
 - **anchor drift** — anchors the committed `ROADMAP.md` is missing or has
   stale, i.e. you forgot to regenerate (pass `--accept-drift` to downgrade
   to a warning)
 
-Exit code is non-zero on hard errors, or on drift unless `--accept-drift`.
+**Warnings** — worth naming, never fatal. They are printed, and the exit
+code stays 0:
+
+- **an empty body** — the catalog `Summary` cell is the body's first
+  non-empty line, so a feature with no body renders a row that links
+  somewhere and says nothing. A warning rather than an error because
+  scaffolding files first and writing bodies second is the normal shape of
+  a migration
+- **a bare reference to an unknown id** — prose saying `F-something` that
+  no feature declares. Softer than the link form, because prose
+  legitimately names things that are not features
+
 Wire it into CI and your roadmap **cannot** silently drift or lie:
 
 ```yaml
@@ -242,7 +263,10 @@ Wire it into CI and your roadmap **cannot** silently drift or lie:
 ```
 
 `validate` silently passes when `.roadmap/` is absent, so the same recipe
-runs on checkouts without the source tree.
+runs on checkouts without the source tree. That escape hatch applies to the
+**default** root only: if you pass `--root` explicitly and the tree is not
+there, that is a typo, and `validate` fails naming the path it resolved
+rather than reporting a clean run that checked nothing.
 
 ## Other commands
 
