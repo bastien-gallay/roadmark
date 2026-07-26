@@ -98,7 +98,13 @@ impl Frontmatter {
 /// keyed off `Done`, so an arbitrary declared value would still need a
 /// distinguished done-ness predicate. Not worth the coupling for the one
 /// extra value (`Blocked`) actually needed.
+///
+/// `#[non_exhaustive]`: because the set lives in the binary rather than in
+/// `config.toml`, every new value is a source break for any downstream crate
+/// matching on it. Paying that once — here, alongside `Blocked`, which breaks
+/// those matches anyway — means the next value doesn't.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Wip,

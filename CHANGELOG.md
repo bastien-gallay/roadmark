@@ -30,7 +30,12 @@ and this project adheres to
   project — distinct from `todo`, which invites someone to pick the
   work up. Ranks between `wip` and `todo` (`⛔`), so a blocked item sorts
   near the top of its bucket instead of blending into untouched work.
-  Purely additive; existing files are unaffected. `status` remains the
+  Additive for `.roadmap/` trees — existing files are unaffected — but a
+  source break for library consumers: `Status` is public and a `match`
+  over `Wip | Todo | Done` no longer compiles. `Status` is now
+  `#[non_exhaustive]` (breaking in the same way, and for the same
+  reason), so downstream matches need a wildcard arm once and further
+  values cost nothing. `status` remains the
   one hardcoded taxonomy field rather than config-declared like the
   others — see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md) for
   why. Closes #37.
