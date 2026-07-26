@@ -10,6 +10,11 @@ source_note = "Source of truth lives in .roadmap/; run `roadmark generate`."
 # Closed value-sets for the schema fields, owned by your project — the
 # generator stays taxonomy-neutral. `validate` enforces membership and the
 # `required_when` conditionals below.
+#
+# Every field is optional per feature unless a `required_when` says
+# otherwise: `{}` makes it unconditional, `{ type = "feature" }` conditional.
+# Leave an axis out of your feature files entirely — e.g. because a tracker
+# board owns it — and no catalog column is emitted for it.
 [fields.type]
 values = ["feature", "fix", "chore"]
 

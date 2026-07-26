@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A project may leave a schema axis out of its feature files
+  entirely (breaking: library API).** `horizon` joins
+  `class`/`effort`/`severity` as an optional field — a feature without
+  one is valid and sorts last within its bucket. `Frontmatter::horizon`
+  is now `Option<String>` rather than `String`, so library consumers
+  reading or constructing that field need updating; `.roadmap/` trees
+  themselves are unaffected. `validate` still enforces membership when
+  the field is present, and a project that wants it mandatory declares
+  `required_when = {}` (unconditional) or a condition such as
+  `required_when = { type = "feature" }`. Supersedes the 0.2.0 note that
+  every feature carries a horizon. See
+  [ADR-0002](docs/adr/0002-partial-schema-adoption.md).
+- **Catalog columns follow the data (breaking: output shape).** A
+  column is emitted only when at least one feature carries a value for
+  that axis; `ID`, `Status` and `Summary` stay unconditional. `—` now
+  means "a gap in an axis this project uses", never "this project does
+  not track this axis". Supersedes the 0.3.0 note that the catalog
+  gains Type/Class/Sev/Effort/Horizon columns unconditionally. **Any
+  project not using all six axes will see its `ROADMAP.md` change shape
+  on the next regen** — expect one whole-table diff, then stability.
+- **Unknown frontmatter keys are rejected (breaking).**
+  `#[serde(deny_unknown_fields)]` on the frontmatter: a stray or
+  mistyped key is now a parse error. Without it, a typo (`horizen =
+  "next"`) would silently read as "no horizon" and drop the feature to
+  the end of its bucket, which optional `horizon` made possible.
+
+### Fixed
+
+- `required_when = {}` (the unconditional form) reported
+  `` `horizon` is required when `` with nothing after "when"; it now
+  reports `` `horizon` is required ``.
+- The `Config::versions` doc-comment promised "sorting and section
+  emission"; `render` has never emitted per-bucket sections, so the
+  comment now says sorting only. No behaviour change.
+
 ## [0.5.1] - 2026-07-13
 
 ### Added
@@ -110,6 +149,7 @@ Initial release.
 - Prebuilt binaries for 5 targets plus shell/powershell installers
   (cargo-dist).
 
+[Unreleased]: https://github.com/bastien-gallay/roadmark/compare/v0.5.1...HEAD
 [0.5.1]: https://github.com/bastien-gallay/roadmark/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/bastien-gallay/roadmark/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/bastien-gallay/roadmark/compare/v0.3.0...v0.4.0

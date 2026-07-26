@@ -18,6 +18,7 @@
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory .roadmap/ → .roadmark/ for brand coherence. Deferred and low priority while usage stays … |
+| [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | next | ✅ | Later | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 
 ## Details
 
@@ -98,3 +99,24 @@ Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gat
 ### <a id="f-roadmark-dir-rename"></a>F-roadmark-dir-rename
 
 Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays personal. If ever done, ship it non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is arguably clearer and stays consistent with the `ROADMAP.md` output, so this may never be worth the churn.
+
+### <a id="f-partial-schema"></a>F-partial-schema
+
+A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes it actually holds.
+
+`horizon` joins `class`/`effort`/`severity` as an optional field (a feature
+without one sorts last within its bucket), and a catalog column is emitted
+only when at least one feature carries a value for that axis — `ID`,
+`Status` and `Summary` excepted, being the table's identity. `—` therefore
+keeps one meaning: a gap in an axis this project *does* use.
+
+This unblocks adoption for projects whose priority already lives on a
+tracker board (GitHub Projects, Jira): they get the file layout without a
+second home for `horizon`, and without a catalog three columns of which are
+`—` on every row. `#[serde(deny_unknown_fields)]` on the frontmatter keeps a
+typo'd key (`horizen = "next"`) a parse error rather than a silent "no
+horizon".
+
+Rationale and the rejected config-driven alternative:
+[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Kept `next` (not
+`shipped`) until a release actually ships it.

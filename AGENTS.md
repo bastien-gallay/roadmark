@@ -110,6 +110,16 @@ Subcommand modules follow the same split:
   case-insensitive anchor collisions on top of exact duplicate ids.
 - **No regex dependency.** Narrow fixed-shape scans (e.g.
   `extract_anchors`) are hand-rolled deliberately.
+- **A project may hold only some of the axes**
+  ([ADR-0002](docs/adr/0002-partial-schema-adoption.md)). Every
+  taxonomy field is omittable per feature, and `render` emits an axis
+  column only when some feature carries a value for it — `ID`, `Status`
+  and `Summary` are the only unconditional ones (`CatalogColumn.always`).
+  A new column defaults to conditional; making it `always: true` puts a
+  `—` on every row of a project that doesn't use it, which is the thing
+  the rule exists to prevent. `#[serde(deny_unknown_fields)]` on
+  `Frontmatter` is load-bearing here, not decoration: with the axes
+  optional, a typo'd key would otherwise parse as an absent field.
 
 ## Conventions
 
@@ -121,3 +131,17 @@ Subcommand modules follow the same split:
 - Errors: `anyhow` with `.context(...)` naming the file being processed;
   no `unwrap`/`expect` outside tests.
 - Markdown prose is linted with markdownlint; keep lines wrapped.
+- **Two branches green in isolation are not a mergeable pair, and the
+  conflict git shows you is not the whole incompatibility.** This is one
+  crate whose surface is mostly `lib.rs`, so parallel work on separate
+  issues lands on the same few items — `Frontmatter`, `render`, the
+  catalog. PRs #29 (`horizon: String` → `Option<String>`) and #30
+  (conditional columns) each passed their own suite. Merging them
+  produced *one* conflict, in `render`; resolving it left a second
+  incompatibility git could not see — a column closure elsewhere in the
+  file still read the field at its old type (`E0599: no method
+  is_empty on &Option<String>`). Past that, two tests pinned
+  contradictory contracts (`—` cell vs. omitted column). So: when work
+  has run in parallel, compile *and* test the merged tree, and stack the
+  branches — rebase the second on the first and retarget its base —
+  rather than merging both into `main` and finding out there.

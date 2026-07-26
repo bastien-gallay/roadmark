@@ -275,9 +275,10 @@ fn describe_condition(cond: &HashMap<String, String>) -> String {
 
 /// One-time config sanity, independent of any feature: reject a `[fields.*]`
 /// name the generator doesn't model (a typo silently disables that field's
-/// validation), and require `[fields.horizon]` — a feature's `horizon`
-/// drives sort rank via the declared value order, so omitting the section
-/// silently degrades within-tier ordering to id order.
+/// validation), and require the `[fields.horizon]` *section* — the field is
+/// optional per feature, but the declared value order is what gives a
+/// horizon its sort rank, so omitting the section silently degrades
+/// within-tier ordering to id order for every feature that carries one.
 fn check_config_fields(config_path: &Path, config: &Config, report: &mut ValidationReport) {
     for name in config.fields.keys() {
         if !Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
@@ -293,8 +294,9 @@ fn check_config_fields(config_path: &Path, config: &Config, report: &mut Validat
     if !config.fields.contains_key("horizon") {
         report.schema_errors.push(SchemaError {
             path: config_path.to_path_buf(),
-            message: "missing `[fields.horizon]` — a feature's `horizon` drives sort rank; \
-                      declare its values (order = rank) or rows fall back to id order"
+            message: "missing `[fields.horizon]` — the field is optional per feature, but \
+                      the declared value order is what ranks the features that do carry \
+                      one; declare its values (order = rank) or rows fall back to id order"
                 .to_string(),
         });
     }

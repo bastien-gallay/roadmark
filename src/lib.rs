@@ -924,7 +924,7 @@ type = \"feature\"\n";
     }
 
     #[test]
-    fn render_shows_dash_when_horizon_absent() {
+    fn render_omits_horizon_column_until_some_feature_carries_one() {
         // Alone, an absent horizon drops the column entirely…
         let mut f = feat("f-x", Status::Todo, "unused", "v0.2.x");
         f.frontmatter.horizon = None;
