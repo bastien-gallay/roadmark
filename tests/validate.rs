@@ -109,6 +109,70 @@ fn schema_error_does_not_abort_run() {
 }
 
 #[test]
+fn feature_without_horizon_validates_clean() {
+    let root = unique_tmp("no-horizon");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        "versions = [\"v0.2.x\"]\n[fields.horizon]\nvalues = [\"next\"]\n",
+    )
+    .unwrap();
+    // No `horizon` key at all — priority lives on an external board.
+    std::fs::write(
+        features.join("f-board.md"),
+        "+++\nid = \"F-board\"\ntype = \"feature\"\narea = [\"x\"]\nstatus = \"todo\"\ntarget = [\"v0.2.x\"]\n+++\n\nBoard-driven.\n",
+    )
+    .unwrap();
+
+    let config = roadmark::load_config(&root).unwrap();
+    let mut fs = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut fs, &config);
+    let rendered = roadmark::render(&fs, &config);
+    assert!(rendered.contains("| — | ☐ |"), "horizon cell should be —");
+
+    let tmp_md = unique_tmp("no-horizon-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, &rendered).unwrap();
+
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
+    assert!(
+        report.is_clean(),
+        "expected clean, got:\n{}",
+        report.to_text()
+    );
+}
+
+#[test]
+fn unknown_horizon_value_still_fails() {
+    let root = unique_tmp("bad-horizon");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        "versions = [\"v0.2.x\"]\n[fields.horizon]\nvalues = [\"next\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-bad.md"),
+        "+++\nid = \"F-bad\"\ntype = \"feature\"\narea = [\"x\"]\nhorizon = \"someday\"\nstatus = \"todo\"\ntarget = [\"v0.2.x\"]\n+++\n\nBad.\n",
+    )
+    .unwrap();
+
+    let tmp_md = unique_tmp("bad-horizon-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, "").unwrap();
+
+    let report = roadmark::validate::validate(&root, &roadmap_md).unwrap();
+    assert!(report
+        .schema_errors
+        .iter()
+        .any(|e| e.message.contains("unknown `horizon` value \"someday\"")));
+}
+
+#[test]
 fn anchor_collision_detected() {
     let root = unique_tmp("collision");
     let features = root.join("features");

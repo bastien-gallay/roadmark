@@ -111,7 +111,7 @@ type = "feature"        # feature | fix | chore
 class = "enabler"       # feature-only leverage (see [fields.class])
 effort = "M"            # S | M | L
 area = ["core", "cli"]  # multi-valued taxonomy
-horizon = "next"        # now | next | later | parked | shipped
+horizon = "next"        # optional; absent rows sort last in bucket
 status = "todo"         # wip | todo | done
 target = ["v0.2"]       # first entry drives the sort bucket
 +++
@@ -164,6 +164,8 @@ multi = true
 
 [fields.horizon]
 values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
+# `horizon` is optional per feature (e.g. priority lives on a board);
+# add `required_when` here to make it mandatory again.
 
 [fields.severity]
 values = ["critical", "major", "minor"]

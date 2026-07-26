@@ -46,7 +46,10 @@ pub struct Frontmatter {
     pub area: Vec<String>,
     /// Ordering horizon (renamed from the old `priority`). Sort rank
     /// comes from the declared order of `[fields.horizon].values`.
-    pub horizon: String,
+    /// Optional — useful when priority lives on an external board; a
+    /// feature without one sorts last within its bucket.
+    #[serde(default)]
+    pub horizon: Option<String>,
     pub status: Status,
     pub target: Vec<String>,
     /// Fix-only severity: critical/major/minor.
@@ -81,7 +84,7 @@ impl Frontmatter {
             "class" => Some(opt(&self.class)),
             "effort" => Some(opt(&self.effort)),
             "area" => Some(self.area.clone()),
-            "horizon" => Some(one(&self.horizon)),
+            "horizon" => Some(opt(&self.horizon)),
             "severity" => Some(opt(&self.severity)),
             _ => None,
         }
@@ -205,8 +208,8 @@ pub fn parse_feature(src: &str) -> Result<Feature> {
 /// must sit *before* `id` in the key: `id` is unique, so any tiebreak
 /// placed after it would never run. Features without a `shipped_order`
 /// sort last within their tier (via `u32::MAX`), then break ties by `id`.
-/// Unknown targets and unknown horizons sort last; missing target arrays
-/// are an upstream schema error caught at parse time.
+/// Unknown targets and unknown or absent horizons sort last; missing
+/// target arrays are an upstream schema error caught at parse time.
 fn sort_key<'a>(
     f: &'a Feature,
     version_index: &HashMap<&str, usize>,
@@ -218,9 +221,11 @@ fn sort_key<'a>(
         .first()
         .and_then(|t| version_index.get(t.as_str()).copied())
         .unwrap_or(usize::MAX);
-    let horizon_idx = horizon_index
-        .get(f.frontmatter.horizon.as_str())
-        .copied()
+    let horizon_idx = f
+        .frontmatter
+        .horizon
+        .as_deref()
+        .and_then(|h| horizon_index.get(h).copied())
         .unwrap_or(usize::MAX);
     (
         target_idx,
@@ -408,7 +413,7 @@ pub fn render(features: &[Feature], config: &Config) -> String {
             class_sev = escape_cell(class_sev),
             effort = escape_cell(fm.effort.as_deref().unwrap_or("—")),
             area = escape_cell(&area),
-            horizon = escape_cell(&fm.horizon),
+            horizon = escape_cell(fm.horizon.as_deref().unwrap_or("—")),
             status = fm.status.glyph(),
             target = escape_cell(&target),
             summary = escape_cell(&summary(&f.body)),
@@ -536,7 +541,7 @@ mod tests {
                 class: None,
                 effort: None,
                 area: vec!["arch".into()],
-                horizon: horizon.into(),
+                horizon: Some(horizon.into()),
                 status,
                 target: vec![target.into()],
                 severity: None,
@@ -569,9 +574,23 @@ target = [\"v0.2.x\"]\n\
         assert_eq!(f.frontmatter.id, "F-foo");
         assert_eq!(f.frontmatter.item_type, "feature");
         assert_eq!(f.frontmatter.area, vec!["arch".to_string()]);
-        assert_eq!(f.frontmatter.horizon, "next");
+        assert_eq!(f.frontmatter.horizon.as_deref(), Some("next"));
         assert_eq!(f.frontmatter.status, Status::Todo);
         assert_eq!(f.body, "The summary.\n");
+    }
+
+    #[test]
+    fn parse_without_horizon() {
+        let src = "+++\n\
+id = \"F-board\"\n\
+type = \"feature\"\n\
+area = [\"arch\"]\n\
+status = \"todo\"\n\
+target = [\"v0.2.x\"]\n\
++++\n\nPriority lives on the board.\n";
+        let f = parse_feature(src).unwrap();
+        assert_eq!(f.frontmatter.id, "F-board");
+        assert_eq!(f.frontmatter.horizon, None);
     }
 
     #[test]
@@ -600,6 +619,22 @@ target = [\"v0.2.x\"]\r\n\
         sort_features(&mut fs, &cfg());
         let ids: Vec<&str> = fs.iter().map(|f| f.frontmatter.id.as_str()).collect();
         assert_eq!(ids, vec!["f-b", "f-a", "f-c", "f-z"]);
+    }
+
+    #[test]
+    fn missing_horizon_sorts_last_within_bucket() {
+        let mut no_horizon = feat("f-a", Status::Todo, "unused", "v0.2.x");
+        no_horizon.frontmatter.horizon = None;
+        let mut fs = vec![
+            no_horizon,
+            // `parked` is the last declared horizon — a feature without
+            // one must still land after it, but before the next bucket.
+            feat("f-parked", Status::Todo, "parked", "v0.2.x"),
+            feat("f-next-bucket", Status::Todo, "now", "v0.3"),
+        ];
+        sort_features(&mut fs, &cfg());
+        let ids: Vec<&str> = fs.iter().map(|f| f.frontmatter.id.as_str()).collect();
+        assert_eq!(ids, vec!["f-parked", "f-a", "f-next-bucket"]);
     }
 
     #[test]
@@ -790,6 +825,14 @@ type = \"feature\"\n";
         f.frontmatter.effort = Some("M".into());
         let out = render(&[f], &cfg());
         assert!(out.contains("| [f-x](#f-x) | feature | enabler | M | arch | next | ☐ | v0.2.x |"));
+    }
+
+    #[test]
+    fn render_shows_dash_when_horizon_absent() {
+        let mut f = feat("f-x", Status::Todo, "unused", "v0.2.x");
+        f.frontmatter.horizon = None;
+        let out = render(&[f], &cfg());
+        assert!(out.contains("| [f-x](#f-x) | feature | — | — | arch | — | ☐ | v0.2.x |"));
     }
 
     #[test]

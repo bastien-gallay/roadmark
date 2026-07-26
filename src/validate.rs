@@ -269,9 +269,9 @@ fn describe_condition(cond: &HashMap<String, String>) -> String {
 
 /// One-time config sanity, independent of any feature: reject a `[fields.*]`
 /// name the generator doesn't model (a typo silently disables that field's
-/// validation), and require `[fields.horizon]` — every feature carries a
-/// `horizon` that drives sort rank, so omitting it silently degrades
-/// within-tier ordering to id order.
+/// validation), and require `[fields.horizon]` — a feature's `horizon`
+/// drives sort rank via the declared value order, so omitting the section
+/// silently degrades within-tier ordering to id order.
 fn check_config_fields(config_path: &Path, config: &Config, report: &mut ValidationReport) {
     for name in config.fields.keys() {
         if !Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
@@ -287,8 +287,8 @@ fn check_config_fields(config_path: &Path, config: &Config, report: &mut Validat
     if !config.fields.contains_key("horizon") {
         report.schema_errors.push(SchemaError {
             path: config_path.to_path_buf(),
-            message: "missing `[fields.horizon]` — every feature carries a `horizon` that drives \
-                      sort rank; declare its values (order = rank) or rows fall back to id order"
+            message: "missing `[fields.horizon]` — a feature's `horizon` drives sort rank; \
+                      declare its values (order = rank) or rows fall back to id order"
                 .to_string(),
         });
     }
@@ -378,7 +378,7 @@ mod tests {
             class: class.map(Into::into),
             effort: None,
             area: area.into_iter().map(Into::into).collect(),
-            horizon: horizon.into(),
+            horizon: Some(horizon.into()),
             status: crate::Status::Todo,
             target: vec!["v0.2.x".into()],
             severity: None,
@@ -500,6 +500,82 @@ mod tests {
         let other = fm("feature", None, vec!["rules"], "next");
         let mut r2 = ValidationReport::default();
         check_feature_fields(Path::new("f.md"), &other, &config, &mut r2);
+        assert!(r2.schema_errors.is_empty(), "got: {:?}", r2.schema_errors);
+    }
+
+    fn cfg_with_horizon(required_when: Option<HashMap<String, String>>) -> Config {
+        use crate::FieldSpec;
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(
+            "horizon".to_string(),
+            FieldSpec {
+                values: vec!["now".into(), "next".into(), "later".into()],
+                multi: false,
+                required_when,
+            },
+        );
+        Config {
+            versions: vec!["v0.2.x".into()],
+            title: "T".into(),
+            source_note: None,
+            fields,
+        }
+    }
+
+    /// `horizon` is optional: its absence alone is not a schema error.
+    #[test]
+    fn field_check_allows_missing_horizon() {
+        let mut feature = fm("feature", None, vec!["rules"], "now");
+        feature.horizon = None;
+        let mut r = ValidationReport::default();
+        check_feature_fields(Path::new("f.md"), &feature, &cfg_with_horizon(None), &mut r);
+        assert!(
+            r.schema_errors.is_empty(),
+            "missing horizon must pass: {:?}",
+            r.schema_errors
+        );
+    }
+
+    /// When present, `horizon` must still belong to the declared set.
+    #[test]
+    fn field_check_flags_unknown_horizon_value() {
+        let feature = fm("feature", None, vec!["rules"], "someday");
+        let mut r = ValidationReport::default();
+        check_feature_fields(Path::new("f.md"), &feature, &cfg_with_horizon(None), &mut r);
+        assert!(
+            r.schema_errors
+                .iter()
+                .any(|e| e.message.contains("unknown `horizon` value \"someday\"")),
+            "got: {:?}",
+            r.schema_errors
+        );
+    }
+
+    /// A config that declares `horizon` required (via `required_when`)
+    /// keeps its old behavior: absence is an error when the condition holds.
+    #[test]
+    fn field_check_required_when_still_applies_to_horizon() {
+        let config = cfg_with_horizon(Some(HashMap::from([(
+            "type".to_string(),
+            "feature".to_string(),
+        )])));
+        let mut feature = fm("feature", None, vec!["rules"], "now");
+        feature.horizon = None;
+        let mut r = ValidationReport::default();
+        check_feature_fields(Path::new("f.md"), &feature, &config, &mut r);
+        assert!(
+            r.schema_errors.iter().any(|e| e
+                .message
+                .contains("`horizon` is required when type = \"feature\"")),
+            "got: {:?}",
+            r.schema_errors
+        );
+
+        // The condition does not hold → absence stays fine.
+        let mut chore = fm("chore", None, vec!["rules"], "now");
+        chore.horizon = None;
+        let mut r2 = ValidationReport::default();
+        check_feature_fields(Path::new("f.md"), &chore, &config, &mut r2);
         assert!(r2.schema_errors.is_empty(), "got: {:?}", r2.schema_errors);
     }
 
