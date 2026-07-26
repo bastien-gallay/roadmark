@@ -6,7 +6,10 @@ title = "roadmark — Roadmap"
 source_note = "Edit files under .roadmap/, then run `roadmark generate > ROADMAP.md`."
 
 # Closed value-sets for the schema fields (schema v2). `validate` enforces
-# membership and the `required_when` conditionals below.
+# membership and the `required_when` conditionals below. Every field is
+# optional per feature unless a `required_when` says otherwise: `{}` makes it
+# unconditional, `{ type = "feature" }` conditional. An axis no feature uses
+# gets no catalog column at all.
 [fields.type]
 values = ["feature", "fix", "chore"]
 

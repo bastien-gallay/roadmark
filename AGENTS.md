@@ -110,6 +110,16 @@ Subcommand modules follow the same split:
   case-insensitive anchor collisions on top of exact duplicate ids.
 - **No regex dependency.** Narrow fixed-shape scans (e.g.
   `extract_anchors`) are hand-rolled deliberately.
+- **A project may hold only some of the axes**
+  ([ADR-0002](docs/adr/0002-partial-schema-adoption.md)). Every
+  taxonomy field is omittable per feature, and `render` emits an axis
+  column only when some feature carries a value for it — `ID`, `Status`
+  and `Summary` are the only unconditional ones (`CatalogColumn.always`).
+  A new column defaults to conditional; making it `always: true` puts a
+  `—` on every row of a project that doesn't use it, which is the thing
+  the rule exists to prevent. `#[serde(deny_unknown_fields)]` on
+  `Frontmatter` is load-bearing here, not decoration: with the axes
+  optional, a typo'd key would otherwise parse as an absent field.
 
 ## Conventions
 
