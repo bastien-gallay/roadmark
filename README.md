@@ -139,7 +139,7 @@ class = "enabler"       # feature-only leverage (see [fields.class])
 effort = "M"            # S | M | L
 area = ["core", "cli"]  # multi-valued taxonomy
 horizon = "next"        # optional; absent rows sort last in bucket
-status = "todo"         # wip | todo | done
+status = "todo"         # wip | blocked | todo | done
 target = ["v0.2"]       # first entry drives the sort bucket
 +++
 
@@ -172,7 +172,9 @@ shipped_order = 3       # stable position within the shipped tier
 
 The allowed values for every field are **config-owned, not hardcoded** —
 the generator stays taxonomy-neutral so roadmark is reusable across
-projects:
+projects. `status` (`wip | blocked | todo | done`) is the one exception:
+it drives sort order and the shipped tier, so it stays a fixed enum — see
+[ADR-0003](docs/adr/0003-status-stays-hardcoded.md):
 
 ```toml
 # .roadmap/config.toml
