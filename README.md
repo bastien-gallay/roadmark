@@ -78,8 +78,8 @@ yourself — this is the smallest one that works:
 # .roadmap/config.toml
 versions = ["v0.1", "Later"]     # sort buckets, earliest first
 
-[fields.horizon]                 # required section: its order ranks features
-values = ["now", "next", "later", "shipped"]
+[fields.horizon]                 # `add` scaffolds a horizon, so declare it:
+values = ["now", "next", "later", "shipped"]   # order = rank
 ```
 
 Then:
@@ -101,7 +101,8 @@ roadmark validate                 # fail if the roadmap is inconsistent — run 
 
 The taxonomy above is deliberately minimal. Every other axis — `type`,
 `class`, `effort`, `area`, `severity` — is optional, and any axis you leave
-out of your feature files gets no column in the generated catalog; see
+out of your feature files gets no column in the generated catalog. You only
+owe a `[fields.X]` section for an axis your features actually carry; see
 [Author](#1-author-the-body-rich-git-native-roadmap-management) for the
 full config.
 
