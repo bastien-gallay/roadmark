@@ -130,7 +130,7 @@ pub struct Shipped {
 /// `.roadmap/config.toml` contents.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    /// Bucket order for sorting and section emission. Earliest cycle first.
+    /// Bucket order for sorting. Earliest cycle first.
     pub versions: Vec<String>,
     /// H1 heading for the generated `ROADMAP.md`. Defaults to `"Roadmap"`.
     #[serde(default = "default_title")]
