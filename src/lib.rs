@@ -92,10 +92,20 @@ impl Frontmatter {
     }
 }
 
+/// The one taxonomy field still hardcoded rather than config-declared
+/// (`[fields.*]`) — see [ADR-0003](../docs/adr/0003-status-stays-hardcoded.md)
+/// for why: `rank()` orders catalog rows and `Shipped`/`shipped_order` are
+/// keyed off `Done`, so an arbitrary declared value would still need a
+/// distinguished done-ness predicate. Not worth the coupling for the one
+/// extra value (`Blocked`) actually needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Wip,
+    /// Scoped and wanted, but cannot start for a reason outside the
+    /// project (e.g. blocked upstream). Distinct from `Todo`, which
+    /// invites someone to pick the work up.
+    Blocked,
     Todo,
     Done,
 }
@@ -104,14 +114,18 @@ impl Status {
     const fn rank(self) -> u8 {
         match self {
             Self::Wip => 0,
-            Self::Todo => 1,
-            Self::Done => 2,
+            // Closer to in-flight than untouched work, and wants to be
+            // seen — sorts between `Wip` and `Todo`.
+            Self::Blocked => 1,
+            Self::Todo => 2,
+            Self::Done => 3,
         }
     }
 
     const fn glyph(self) -> &'static str {
         match self {
             Self::Wip => "🚧",
+            Self::Blocked => "⛔",
             Self::Todo => "☐",
             Self::Done => "✅",
         }
@@ -742,6 +756,20 @@ target = [\"v0.2.x\"]\n\
     }
 
     #[test]
+    fn parse_blocked_status() {
+        let src = "+++\n\
+id = \"F-foo\"\n\
+type = \"feature\"\n\
+area = [\"arch\"]\n\
+horizon = \"next\"\n\
+status = \"blocked\"\n\
+target = [\"v0.2.x\"]\n\
++++\n\nThe summary.\n";
+        let f = parse_feature(src).unwrap();
+        assert_eq!(f.frontmatter.status, Status::Blocked);
+    }
+
+    #[test]
     fn parse_without_horizon() {
         let src = "+++\n\
 id = \"F-board\"\n\
@@ -798,6 +826,18 @@ target = [\"v0.2.x\"]\r\n\
         sort_features(&mut fs, &cfg());
         let ids: Vec<&str> = fs.iter().map(|f| f.frontmatter.id.as_str()).collect();
         assert_eq!(ids, vec!["f-b", "f-a", "f-c", "f-z"]);
+    }
+
+    #[test]
+    fn blocked_sorts_after_wip_and_before_todo() {
+        let mut fs = vec![
+            feat("f-todo", Status::Todo, "next", "v0.2.x"),
+            feat("f-blocked", Status::Blocked, "next", "v0.2.x"),
+            feat("f-wip", Status::Wip, "next", "v0.2.x"),
+        ];
+        sort_features(&mut fs, &cfg());
+        let ids: Vec<&str> = fs.iter().map(|f| f.frontmatter.id.as_str()).collect();
+        assert_eq!(ids, vec!["f-wip", "f-blocked", "f-todo"]);
     }
 
     #[test]
@@ -1004,6 +1044,13 @@ type = \"feature\"\n";
         f.frontmatter.effort = Some("M".into());
         let out = render(&[f], &cfg());
         assert!(out.contains("| [f-x](#f-x) | feature | enabler | M | arch | next | ☐ | v0.2.x |"));
+    }
+
+    #[test]
+    fn render_shows_blocked_glyph_in_catalog_row() {
+        let f = feat("f-x", Status::Blocked, "next", "v0.2.x");
+        let out = render(&[f], &cfg());
+        assert!(out.contains("| [f-x](#f-x) | feature | arch | next | ⛔ | v0.2.x |"));
     }
 
     #[test]

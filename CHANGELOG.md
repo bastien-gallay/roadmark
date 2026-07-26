@@ -25,6 +25,15 @@ and this project adheres to
   before the rename. stdout stays the default, so
   `roadmark generate | diff ROADMAP.md -` and existing pipelines are
   unaffected. ([#41](https://github.com/bastien-gallay/roadmark/issues/41))
+- **`status = "blocked"`.** `Status` gains a fourth value for work that
+  is scoped and wanted but cannot start for a reason outside the
+  project — distinct from `todo`, which invites someone to pick the
+  work up. Ranks between `wip` and `todo` (`⛔`), so a blocked item sorts
+  near the top of its bucket instead of blending into untouched work.
+  Purely additive; existing files are unaffected. `status` remains the
+  one hardcoded taxonomy field rather than config-declared like the
+  others — see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md) for
+  why. Closes #37.
 
 ### Changed
 
