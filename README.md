@@ -119,6 +119,10 @@ target = ["v0.2"]       # first entry drives the sort bucket
 One-paragraph summary — the first non-empty line lands in the Summary column.
 ```
 
+Unknown frontmatter keys are rejected at parse time: with `horizon`
+optional, a typo (`horizen = "next"`) would otherwise silently read as
+"no horizon" and drop the feature to the end of its bucket.
+
 A fix carries a `severity` instead of a `class`:
 
 ```toml
@@ -164,8 +168,10 @@ multi = true
 
 [fields.horizon]
 values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
-# `horizon` is optional per feature (e.g. priority lives on a board);
-# add `required_when` here to make it mandatory again.
+# `horizon` is optional per feature (e.g. priority lives on a board).
+# To make it mandatory again use `required_when = {}` (unconditional) or
+# a condition such as `required_when = { type = "feature" }` — the latter
+# leaves it optional for the other types.
 
 [fields.severity]
 values = ["critical", "major", "minor"]

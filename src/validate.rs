@@ -233,10 +233,16 @@ fn check_feature_fields(
                     .is_some_and(|vals| vals.iter().any(|v| v == cond_val))
             });
             if all_match && values.is_empty() {
-                err(format!(
-                    "`{name}` is required when {}",
-                    describe_condition(required_when)
-                ));
+                // `required_when = {}` is the unconditional form (an empty
+                // AND is vacuously true) — don't emit a dangling "when".
+                if required_when.is_empty() {
+                    err(format!("`{name}` is required"));
+                } else {
+                    err(format!(
+                        "`{name}` is required when {}",
+                        describe_condition(required_when)
+                    ));
+                }
             }
         }
         if !spec.multi && values.len() > 1 {
@@ -387,6 +393,17 @@ mod tests {
         }
     }
 
+    /// Standard version/title boilerplate around a `fields` map — the single
+    /// place tests build a `Config`, so struct changes cost one edit.
+    fn cfg(fields: std::collections::BTreeMap<String, crate::FieldSpec>) -> Config {
+        Config {
+            versions: vec!["v0.2.x".into()],
+            title: "T".into(),
+            source_note: None,
+            fields,
+        }
+    }
+
     fn cfg_with_fields() -> Config {
         use crate::FieldSpec;
         let mut fields = std::collections::BTreeMap::new();
@@ -409,12 +426,7 @@ mod tests {
                 required_when: None,
             },
         );
-        Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        }
+        cfg(fields)
     }
 
     #[test]
@@ -478,12 +490,7 @@ mod tests {
                 )])),
             },
         );
-        let config = Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        };
+        let config = cfg(fields);
         // effort is unset and horizon == "now" → the rule must fire.
         let feature = fm("feature", None, vec!["rules"], "now");
         let mut r = ValidationReport::default();
@@ -514,12 +521,7 @@ mod tests {
                 required_when,
             },
         );
-        Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        }
+        cfg(fields)
     }
 
     /// `horizon` is optional: its absence alone is not a schema error.
@@ -579,6 +581,26 @@ mod tests {
         assert!(r2.schema_errors.is_empty(), "got: {:?}", r2.schema_errors);
     }
 
+    /// `required_when = {}` is the unconditional form (an empty AND is
+    /// vacuously true): absence is always an error, and the message must
+    /// not dangle a trailing "when".
+    #[test]
+    fn field_check_empty_required_when_means_always() {
+        let config = cfg_with_horizon(Some(HashMap::new()));
+        let mut chore = fm("chore", None, vec!["rules"], "now");
+        chore.horizon = None;
+        let mut r = ValidationReport::default();
+        check_feature_fields(Path::new("f.md"), &chore, &config, &mut r);
+        assert!(
+            r.schema_errors
+                .iter()
+                .any(|e| e.message.contains("`horizon` is required")
+                    && !e.message.contains("required when")),
+            "got: {:?}",
+            r.schema_errors
+        );
+    }
+
     /// Regression for the dead `multi` knob: `multi = false` must reject a
     /// field carrying more than one value.
     #[test]
@@ -593,12 +615,7 @@ mod tests {
                 required_when: None,
             },
         );
-        let config = Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        };
+        let config = cfg(fields);
         let feature = fm("feature", None, vec!["rules", "docs"], "next");
         let mut r = ValidationReport::default();
         check_feature_fields(Path::new("f.md"), &feature, &config, &mut r);
@@ -631,12 +648,7 @@ mod tests {
                 required_when: None,
             },
         );
-        let config = Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        };
+        let config = cfg(fields);
         let mut r = ValidationReport::default();
         check_config_fields(Path::new("config.toml"), &config, &mut r);
         assert!(
@@ -660,12 +672,7 @@ mod tests {
                 required_when: None,
             },
         );
-        let config = Config {
-            versions: vec!["v0.2.x".into()],
-            title: "T".into(),
-            source_note: None,
-            fields,
-        };
+        let config = cfg(fields);
         let mut r = ValidationReport::default();
         check_config_fields(Path::new("config.toml"), &config, &mut r);
         assert!(

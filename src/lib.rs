@@ -30,6 +30,7 @@ pub struct Feature {
 /// declared per-project in `config.toml` `[fields.*]` and enforced by
 /// `validate`, so this generator stays reusable across projects.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Frontmatter {
     pub id: String,
     /// `feature | fix | chore`. Only features carry a `class`; only
@@ -591,6 +592,23 @@ target = [\"v0.2.x\"]\n\
         let f = parse_feature(src).unwrap();
         assert_eq!(f.frontmatter.id, "F-board");
         assert_eq!(f.frontmatter.horizon, None);
+    }
+
+    /// With `horizon` optional, a typo'd key would otherwise silently read
+    /// as "no horizon" — `deny_unknown_fields` keeps it a parse error.
+    #[test]
+    fn parse_rejects_unknown_key() {
+        let src = "+++\n\
+id = \"F-foo\"\n\
+type = \"feature\"\n\
+area = [\"arch\"]\n\
+horizen = \"next\"\n\
+status = \"todo\"\n\
+target = [\"v0.2.x\"]\n\
++++\n\nThe summary.\n";
+        let err = parse_feature(src).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("horizen"), "got: {msg}");
     }
 
     #[test]
