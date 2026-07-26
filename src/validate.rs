@@ -16,7 +16,7 @@
 use crate::add::classify_slug;
 use crate::{
     anchor_id, axis_in_use, feature_md_paths, load_config, parse_feature, render, sort_features,
-    Config, Feature, Frontmatter,
+    Config, Feature, Frontmatter, LoadedSection,
 };
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -244,6 +244,7 @@ pub fn validate(root: &Path, roadmap_md: &Path, root_explicit: bool) -> Result<V
     // Config checks need the features: a `[fields.X]` section is required
     // by what the tree actually holds, not unconditionally.
     check_config_fields(&root.join("config.toml"), &config, &features, &mut report);
+    let sections = check_sections(root, &config, &mut report);
 
     let mut id_counts: HashMap<String, usize> = HashMap::new();
     for f in &features {
@@ -284,7 +285,9 @@ pub fn validate(root: &Path, roadmap_md: &Path, root_explicit: bool) -> Result<V
 
     let mut sorted = features;
     sort_features(&mut sorted, &config);
-    let regen = render(&sorted, &config);
+    // The regen must carry the same sections the on-disk file does, or a
+    // hand-written block holding an `<a id>` would read as drift.
+    let regen = render(&sorted, &config, &sections);
     let regen_anchors = extract_anchors(&regen);
 
     report.anchors_missing_from_regen = on_disk_anchors
@@ -608,6 +611,50 @@ fn token_runs(body: &str) -> Vec<&str> {
 /// value that [ADR-0002](../docs/adr/0002-partial-schema-adoption.md)
 /// exists to remove (#34).
 ///
+/// Read every declared narrative section, reporting the ones that can't
+/// be read instead of aborting the run.
+///
+/// A missing section file is a hard error: `generate` would fail outright,
+/// so a `validate` that passed would be promising a document the very next
+/// command refuses to produce. Returning what *did* load lets the anchor
+/// diff run against the closest thing to the real output — the run is
+/// already failing, and a second, bogus drift report on top of the real
+/// error helps nobody.
+fn check_sections(
+    root: &Path,
+    config: &Config,
+    report: &mut ValidationReport,
+) -> Vec<LoadedSection> {
+    let config_path = root.join("config.toml");
+    let mut loaded = Vec::new();
+    for section in &config.sections {
+        let path = match crate::section_path(root, &section.file) {
+            Ok(p) => p,
+            Err(e) => {
+                report.schema_errors.push(SchemaError {
+                    path: config_path.clone(),
+                    message: format!("{e:#}"),
+                });
+                continue;
+            },
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(body) => loaded.push(LoadedSection {
+                slot: section.slot,
+                body,
+            }),
+            Err(e) => report.schema_errors.push(SchemaError {
+                path: config_path.clone(),
+                message: format!(
+                    "declared section `{}` cannot be read ({e}) — `generate` would fail",
+                    section.file
+                ),
+            }),
+        }
+    }
+    loaded
+}
+
 /// The scan runs over [`Frontmatter::OMISSIBLE_FIELD_NAMES`], not all of
 /// `FIELD_NAMES`. `type` and `area` are structurally mandatory, so "in use"
 /// is always true for them and the rule would degenerate into "every

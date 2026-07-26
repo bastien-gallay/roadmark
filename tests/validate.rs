@@ -43,7 +43,7 @@ fn render_minimal() -> String {
     let config = roadmark::load_config(&root).unwrap();
     let mut features = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut features, &config);
-    roadmark::render(&features, &config)
+    roadmark::render(&features, &config, &[])
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn feature_without_horizon_validates_clean() {
     let config = roadmark::load_config(&root).unwrap();
     let mut fs = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut fs, &config);
-    let rendered = roadmark::render(&fs, &config);
+    let rendered = roadmark::render(&fs, &config, &[]);
     // No feature carries a horizon → the column is omitted outright.
     assert!(
         !rendered.contains("Horizon"),
@@ -223,6 +223,91 @@ fn horizon_in_use_without_a_declaration_is_a_hard_error() {
     );
 }
 
+/// #21: a declared narrative section that isn't there is a hard error,
+/// because `generate` would refuse outright — a clean `validate` would be
+/// promising a document the very next command can't produce.
+#[test]
+fn a_missing_declared_section_is_a_hard_error() {
+    let root = unique_tmp("section-missing");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        format!("sections = [{{ file = \"preamble.md\", slot = \"before-catalog\" }}]\n{CONFIG_WITHOUT_HORIZON}"),
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-one.md"),
+        feature_src("F-one", "", "One.\n"),
+    )
+    .unwrap();
+
+    let tmp_md = unique_tmp("section-missing-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, "").unwrap();
+
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(report.has_hard_errors(), "got: {}", report.to_text());
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("declared section `preamble.md`")),
+        "got: {}",
+        report.to_text()
+    );
+
+    // Write it and the same tree validates without that error.
+    std::fs::write(root.join("preamble.md"), "Some narrative.\n").unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        !report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("declared section")),
+        "got: {}",
+        report.to_text()
+    );
+}
+
+/// A section holding an `<a id>` must not read as anchor drift: the regen
+/// `validate` diffs against has to carry the same hand-written blocks the
+/// on-disk file does.
+#[test]
+fn an_anchor_inside_a_section_is_not_drift() {
+    let root = unique_tmp("section-anchor");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        format!("sections = [{{ file = \"notes.md\", slot = \"after-catalog\" }}]\n{CONFIG_WITHOUT_HORIZON}"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("notes.md"),
+        "<a id=\"triage-2026-07\"></a>\n\nNotes.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-one.md"),
+        feature_src("F-one", "", "One.\n"),
+    )
+    .unwrap();
+
+    let config = roadmark::load_config(&root).unwrap();
+    let sections = roadmark::load_sections(&root, &config).unwrap();
+    let mut fs_ = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut fs_, &config);
+    let tmp_md = unique_tmp("section-anchor-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, roadmark::render(&fs_, &config, &sections)).unwrap();
+
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(report.is_clean(), "got: {}", report.to_text());
+}
+
 /// End-to-end #38 + #36 + the warnings tier: an unwritten body and a prose
 /// mention of a missing id are both reported, and neither fails the run.
 #[test]
@@ -249,7 +334,7 @@ fn empty_body_and_dead_prose_reference_warn_without_failing() {
     let tmp_md = unique_tmp("warnings-md");
     std::fs::create_dir_all(&tmp_md).unwrap();
     let roadmap_md = tmp_md.join("ROADMAP.md");
-    std::fs::write(&roadmap_md, roadmark::render(&fs, &config)).unwrap();
+    std::fs::write(&roadmap_md, roadmark::render(&fs, &config, &[])).unwrap();
 
     let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
     assert!(!report.has_hard_errors(), "got: {}", report.to_text());

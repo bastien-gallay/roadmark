@@ -272,6 +272,56 @@ It is opt-in because it rewrites every line of the generated file. For a
 project with few features, or no meaningful bucket axis, the flat table
 is the right output.
 
+#### Hand-written narrative
+
+Some prose belongs to no single feature: dated triage notes, "why this
+slice", horizon commentary, which items are crowned and in what order.
+It is *about* the relationships between features, so it fits in no
+feature body — and moving it to `docs/` means neither file is the
+roadmap any more.
+
+Declare markdown files and where they land:
+
+```toml
+sections = [
+  { file = "preamble.md", slot = "before-catalog" },
+  { file = "notes.md",    slot = "after-catalog" },
+  { file = "closing.md",  slot = "after-details" },
+]
+```
+
+```text
+.roadmap/
+├── config.toml
+├── preamble.md
+├── notes.md
+└── features/
+```
+
+Three slots, named for the document's structural landmarks:
+`before-catalog` (after the title and banner), `after-catalog` (before
+`## Details`), and `after-details` (the end). Under `split_by_bucket` the
+catalog is several sections, so `before-catalog` means before the
+*first* and `after-catalog` after the *last* — the boundaries hold
+whatever shape the catalog takes. Several files may share a slot; they
+emit in declaration order.
+
+Two properties make this safe to rely on:
+
+- **Verbatim.** roadmark neither parses nor reformats the content —
+  fenced blocks, tables and HTML survive as written. Only the *framing*
+  is normalised: leading and trailing blank lines are dropped, so the
+  document's spacing doesn't depend on how your editor saved the file.
+- **Counted by `validate`.** A declared file that isn't there is a hard
+  error, not a silent hole. `generate` would fail outright, so a passing
+  `validate` would be promising a document the next command refuses to
+  produce.
+
+Paths are relative to the `.roadmap/` root and must stay inside it: an
+absolute path or a `..` component is a schema error. `.roadmap/` is the
+source of truth, and a document assembled partly from outside it can't
+be reproduced from a checkout of it.
+
 ### 3. Validate — the guarantee
 
 This is the point. `roadmark validate` is read-only. It reports two tiers.

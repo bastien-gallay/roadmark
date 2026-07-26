@@ -129,8 +129,10 @@ fn generate(root: &std::path::Path, output: Option<&std::path::Path>) -> Result<
         .with_context(|| format!("reading roadmap source at {}", root.display()))?;
     let mut features = roadmark::load_features(root)
         .with_context(|| format!("reading roadmap source at {}", root.display()))?;
+    let sections = roadmark::load_sections(root, &config)
+        .with_context(|| format!("reading roadmap source at {}", root.display()))?;
     roadmark::sort_features(&mut features, &config);
-    let rendered = roadmark::render(&features, &config);
+    let rendered = roadmark::render(&features, &config, &sections);
     match output {
         Some(path) => roadmark::write_atomic(path, &rendered)
             .with_context(|| format!("writing {}", path.display()))?,
