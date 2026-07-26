@@ -17,6 +17,9 @@
   "ignores": [
     "target/**",
     "node_modules/**",
+    // Gitignored maintainer notes: absent from a CI checkout, so linting
+    // them locally is the one way a bare run stops mirroring CI.
+    ".personal/**",
     "CLAUDE.md",
     "ROADMAP.md",
     ".roadmap/features/**",

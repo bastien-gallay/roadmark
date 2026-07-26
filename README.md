@@ -269,8 +269,15 @@ is guaranteed clean *before* it propagates anywhere.
 ## Status
 
 Early and actively dogfooded. The core (`add` / `generate` / `validate` /
-`rename`) is shipped and stable; external projections (GitHub Projects,
+`rename`) is shipped and complete; external projections (GitHub Projects,
 Jira) are planned and demand-driven. Issues and feedback welcome.
+
+**Pre-1.0, so breaking changes happen** — in the frontmatter schema, in
+the shape of the generated catalog, and in the library API. 0.6.0 carried
+all three. Every one is documented in the
+[changelog](CHANGELOG.md) under the release that introduced it; read it
+before upgrading, and pin a version if a regenerated `ROADMAP.md`
+appearing in your diff would be disruptive.
 
 ## License
 
