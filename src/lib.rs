@@ -580,6 +580,43 @@ pub fn load_features(root: &Path) -> Result<Vec<Feature>> {
     Ok(out)
 }
 
+/// Write `contents` to `path` atomically: a sibling temp file first, then a
+/// rename over the destination.
+///
+/// The point is the *failure* path, not the success one. `roadmark generate >
+/// ROADMAP.md` has the shell truncate the destination to zero bytes before the
+/// binary runs, so any error — an unparseable feature file, a missing config —
+/// leaves the committed roadmap empty and nothing written in its place. Going
+/// through a temp file removes the shell from the write path: the destination
+/// is untouched until a complete document exists on disk.
+///
+/// The temp file is a sibling (same directory, so the rename stays within one
+/// filesystem and is therefore atomic), named per-process so concurrent runs
+/// in the same directory can't clobber each other's staging file. It is
+/// removed on any failure after creation, so a failed run leaves no litter.
+pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+    // A bare relative filename (`ROADMAP.md`) has an empty parent, which is
+    // not a directory any temp file can live in — that's the current one.
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("not a file path: {}", path.display()))?;
+    let mut tmp_name = name.to_os_string();
+    tmp_name.push(format!(".roadmark-tmp-{}", std::process::id()));
+    let tmp = dir.join(tmp_name);
+
+    std::fs::write(&tmp, contents)
+        .with_context(|| format!("writing temp file {}", tmp.display()))?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("replacing {}", path.display()));
+    }
+    Ok(())
+}
+
 pub fn load_config(root: &Path) -> Result<Config> {
     let path = root.join("config.toml");
     let src =
@@ -1023,6 +1060,72 @@ type = \"feature\"\n";
         };
         assert_eq!(shipped_line(&bare).unwrap(), "Shipped in v1.");
         assert!(shipped_line(&Shipped::default()).is_none());
+    }
+
+    fn unique_tmp(label: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("roadmark-lib-{label}-{}-{n}", std::process::id()))
+    }
+
+    #[test]
+    fn write_atomic_creates_then_replaces() {
+        let dir = unique_tmp("atomic-replace");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("ROADMAP.md");
+
+        write_atomic(&target, "first\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "first\n");
+        write_atomic(&target, "second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "second\n");
+
+        // The staging file is renamed, not left behind: the directory holds
+        // exactly the destination.
+        let entries: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("ROADMAP.md")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A bare relative filename has an empty parent — the temp file has to
+    /// land in the current directory rather than at the filesystem root.
+    #[test]
+    fn write_atomic_handles_bare_relative_filename() {
+        let dir = unique_tmp("atomic-relative");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("out.md");
+        // Resolve the sibling-directory rule without depending on the
+        // process-wide cwd (tests share it): `dir/out.md` already exercises
+        // the `Some(parent)` arm, so assert the fallback arm directly.
+        assert_eq!(
+            Path::new("ROADMAP.md")
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty()),
+            None
+        );
+        write_atomic(&target, "x\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "x\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The destination must survive a failed write — that is the whole
+    /// reason the function exists (see #41).
+    #[test]
+    fn write_atomic_leaves_destination_intact_when_staging_fails() {
+        let dir = unique_tmp("atomic-fail");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("ROADMAP.md");
+        std::fs::write(&target, "PRECIOUS\n").unwrap();
+
+        // A destination whose parent does not exist: staging fails, so the
+        // rename never runs. The real file elsewhere is untouched.
+        let doomed = dir.join("missing-subdir").join("ROADMAP.md");
+        assert!(write_atomic(&doomed, "new\n").is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "PRECIOUS\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

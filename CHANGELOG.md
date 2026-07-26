@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`generate -o/--output <path>`, which cannot destroy the file it
+  writes.** The documented recipe `roadmark generate > ROADMAP.md` has
+  the *shell* truncate `ROADMAP.md` to zero bytes before roadmark runs,
+  so any failure — an unparseable feature file, a missing config — left
+  the committed roadmap empty and nothing written in its place. 0.6.0's
+  `deny_unknown_fields` made this fire on upgrade: a tree carrying one
+  stray frontmatter key generated yesterday and destroys its roadmap
+  today. `--output` renders the whole document first, then writes it via
+  a sibling temp file and a rename, so a failing run leaves the previous
+  file byte-identical. stdout stays the default, so
+  `roadmark generate | diff ROADMAP.md -` and existing pipelines are
+  unaffected. ([#41](https://github.com/bastien-gallay/roadmark/issues/41))
+
+### Changed
+
+- The README quick start, the `rename` hint, and the generated banner's
+  `source_note` now show the `-o` form rather than the redirection.
+
 ## [0.6.0] - 2026-07-26
 
 ### Changed

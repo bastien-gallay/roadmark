@@ -85,18 +85,19 @@ values = ["now", "next", "later", "shipped"]
 Then:
 
 ```sh
-roadmark add f-dark-mode        # scaffold a new feature file under .roadmap/features/
-roadmark generate > ROADMAP.md  # compile features into ROADMAP.md
-roadmark validate               # fail if the roadmap is inconsistent — run this in CI
+roadmark add f-dark-mode          # scaffold a new feature file under .roadmap/features/
+roadmark generate -o ROADMAP.md   # compile features into ROADMAP.md
+roadmark validate                 # fail if the roadmap is inconsistent — run this in CI
 ```
 
 `roadmark --root path/to/.roadmap generate` points at a non-default location.
 
-> **Careful with that redirection.** The shell empties `ROADMAP.md` before
-> `roadmark` runs, so a failed `generate` leaves you with an empty file
-> rather than the previous one ([#41](https://github.com/bastien-gallay/roadmark/issues/41)).
-> Recover with `git checkout ROADMAP.md`; to avoid it entirely, generate to
-> a temporary file and move it into place once the command succeeds.
+> **Use `-o`, not `>`.** `generate` still writes to stdout by default, so
+> `roadmark generate | diff ROADMAP.md -` and other pipelines keep working.
+> But `roadmark generate > ROADMAP.md` has the *shell* empty the file before
+> roadmark runs, so a failed generate leaves you with nothing rather than the
+> previous roadmap. `-o/--output` writes via a temp file and a rename, so a
+> failing run leaves the existing file untouched.
 
 The taxonomy above is deliberately minimal. Every other axis — `type`,
 `class`, `effort`, `area`, `severity` — is optional, and any axis you leave
@@ -207,7 +208,9 @@ required_when = { type = "fix" }
 ### 2. Generate: the roadmap is a compiled artifact
 
 `roadmark generate` compiles every feature file into a single, formatted
-`ROADMAP.md` on stdout. The output has two parts — a **feature catalog**
+`ROADMAP.md` — on stdout by default, or to a path with `-o/--output`, which
+writes through a temp file and a rename so a failing run cannot destroy the
+roadmap it was regenerating. The output has two parts — a **feature catalog**
 (one table row per feature, ID linking to its detail section) and
 **details** (each feature's full body, verbatim). It is **deterministic**:
 the catalog is sorted by a total key (target bucket → status → horizon →
