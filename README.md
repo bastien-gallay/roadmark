@@ -111,13 +111,17 @@ type = "feature"        # feature | fix | chore
 class = "enabler"       # feature-only leverage (see [fields.class])
 effort = "M"            # S | M | L
 area = ["core", "cli"]  # multi-valued taxonomy
-horizon = "next"        # now | next | later | parked | shipped
+horizon = "next"        # optional; absent rows sort last in bucket
 status = "todo"         # wip | todo | done
 target = ["v0.2"]       # first entry drives the sort bucket
 +++
 
 One-paragraph summary — the first non-empty line lands in the Summary column.
 ```
+
+Unknown frontmatter keys are rejected at parse time: with `horizon`
+optional, a typo (`horizen = "next"`) would otherwise silently read as
+"no horizon" and drop the feature to the end of its bucket.
 
 A fix carries a `severity` instead of a `class`:
 
@@ -164,6 +168,10 @@ multi = true
 
 [fields.horizon]
 values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
+# `horizon` is optional per feature (e.g. priority lives on a board).
+# To make it mandatory again use `required_when = {}` (unconditional) or
+# a condition such as `required_when = { type = "feature" }` — the latter
+# leaves it optional for the other types.
 
 [fields.severity]
 values = ["critical", "major", "minor"]
