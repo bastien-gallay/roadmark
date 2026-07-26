@@ -70,6 +70,20 @@ All of these install a binary named `roadmark`.
 
 ## Quick start
 
+There is no `init` yet ([F-init](ROADMAP.md#f-init) is planned) and `add`
+does not write a config, so start by creating `.roadmap/config.toml`
+yourself — this is the smallest one that works:
+
+```toml
+# .roadmap/config.toml
+versions = ["v0.1", "Later"]     # sort buckets, earliest first
+
+[fields.horizon]                 # required section: its order ranks features
+values = ["now", "next", "later", "shipped"]
+```
+
+Then:
+
 ```sh
 roadmark add f-dark-mode        # scaffold a new feature file under .roadmap/features/
 roadmark generate > ROADMAP.md  # compile features into ROADMAP.md
@@ -77,6 +91,18 @@ roadmark validate               # fail if the roadmap is inconsistent — run th
 ```
 
 `roadmark --root path/to/.roadmap generate` points at a non-default location.
+
+> **Careful with that redirection.** The shell empties `ROADMAP.md` before
+> `roadmark` runs, so a failed `generate` leaves you with an empty file
+> rather than the previous one ([#41](https://github.com/bastien-gallay/roadmark/issues/41)).
+> Recover with `git checkout ROADMAP.md`; to avoid it entirely, generate to
+> a temporary file and move it into place once the command succeeds.
+
+The taxonomy above is deliberately minimal. Every other axis — `type`,
+`class`, `effort`, `area`, `severity` — is optional, and any axis you leave
+out of your feature files gets no column in the generated catalog; see
+[Author](#1-author-the-body-rich-git-native-roadmap-management) for the
+full config.
 
 ---
 
