@@ -186,6 +186,9 @@ required_when = { type = "fix" }
 **details** (each feature's full body, verbatim). It is **deterministic**:
 the catalog is sorted by a total key (target bucket → status → horizon →
 `shipped_order` → id), so regeneration is byte-stable and diffs stay clean.
+Catalog columns for axes no feature uses (e.g. `Target` or `Effort` in a
+project that never sets them) are omitted; a partially used axis keeps
+its column, with `—` for features that carry no value.
 
 ### 3. Validate — the guarantee
 
