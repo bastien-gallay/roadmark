@@ -376,6 +376,92 @@ fn escape_cell(s: &str) -> String {
     s.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
+/// One catalog column: header label plus how to read a feature's cell.
+/// `value` returning `None` means "this feature has no value for the
+/// axis" — a non-`always` column is omitted entirely when every feature
+/// returns `None`, and a present column renders `None` cells as `—`.
+struct CatalogColumn {
+    header: &'static str,
+    /// Table identity (`ID` / `Status` / `Summary`): emitted even when
+    /// a value would be empty, so the catalog shape is stable.
+    always: bool,
+    value: fn(&Feature) -> Option<String>,
+}
+
+/// The catalog columns in emission order. Axis columns are conditional:
+/// a project that never uses an axis gets no column for it.
+fn catalog_columns() -> [CatalogColumn; 9] {
+    [
+        CatalogColumn {
+            header: "ID",
+            always: true,
+            // Escaped as a whole: a `|` in a hand-written id would
+            // otherwise open a phantom column and shift every cell after.
+            value: |f| {
+                let id = &f.frontmatter.id;
+                Some(escape_cell(&format!("[{id}](#{aid})", aid = anchor_id(id))))
+            },
+        },
+        CatalogColumn {
+            header: "Type",
+            always: false,
+            value: |f| {
+                let t = &f.frontmatter.item_type;
+                (!t.is_empty()).then(|| escape_cell(t))
+            },
+        },
+        CatalogColumn {
+            header: "Class/Sev",
+            always: false,
+            // `class` (feature-only) and `severity` (fix-only) are
+            // mutually exclusive by taxonomy, so they share one column.
+            value: |f| {
+                f.frontmatter
+                    .class
+                    .as_deref()
+                    .or(f.frontmatter.severity.as_deref())
+                    .map(escape_cell)
+            },
+        },
+        CatalogColumn {
+            header: "Effort",
+            always: false,
+            value: |f| f.frontmatter.effort.as_deref().map(escape_cell),
+        },
+        CatalogColumn {
+            header: "Area",
+            always: false,
+            value: |f| {
+                let a = &f.frontmatter.area;
+                (!a.is_empty()).then(|| escape_cell(&a.join(", ")))
+            },
+        },
+        CatalogColumn {
+            header: "Horizon",
+            always: false,
+            value: |f| f.frontmatter.horizon.as_deref().map(escape_cell),
+        },
+        CatalogColumn {
+            header: "Status",
+            always: true,
+            value: |f| Some(f.frontmatter.status.glyph().to_string()),
+        },
+        CatalogColumn {
+            header: "Target",
+            always: false,
+            value: |f| {
+                let t = &f.frontmatter.target;
+                (!t.is_empty()).then(|| escape_cell(&t.join(" → ")))
+            },
+        },
+        CatalogColumn {
+            header: "Summary",
+            always: true,
+            value: |f| Some(escape_cell(&summary(&f.body))),
+        },
+    ]
+}
+
 pub fn render(features: &[Feature], config: &Config) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(8 * 1024);
@@ -390,35 +476,27 @@ pub fn render(features: &[Feature], config: &Config) -> String {
     }
     out.push_str(" -->\n\n");
     out.push_str("## Feature catalog\n\n");
-    out.push_str(
-        "| ID | Type | Class/Sev | Effort | Area | Horizon | Status | Target | Summary |\n",
-    );
-    out.push_str("|---|---|---|---|---|---|---|---|---|\n");
-    for f in features {
-        let fm = &f.frontmatter;
-        let aid = anchor_id(&fm.id);
-        let target = fm.target.join(" → ");
-        let area = fm.area.join(", ");
-        // `class` (feature-only) and `severity` (fix-only) are mutually
-        // exclusive by taxonomy, so they share one column.
-        let class_sev = fm
-            .class
-            .as_deref()
-            .or(fm.severity.as_deref())
-            .unwrap_or("—");
-        let _ = writeln!(
-            out,
-            "| [{id}](#{aid}) | {ty} | {class_sev} | {effort} | {area} | {horizon} | {status} | {target} | {summary} |",
-            id = fm.id,
-            ty = escape_cell(&fm.item_type),
-            class_sev = escape_cell(class_sev),
-            effort = escape_cell(fm.effort.as_deref().unwrap_or("—")),
-            area = escape_cell(&area),
-            horizon = escape_cell(fm.horizon.as_deref().unwrap_or("—")),
-            status = fm.status.glyph(),
-            target = escape_cell(&target),
-            summary = escape_cell(&summary(&f.body)),
-        );
+    // Only emit an axis column when at least one feature carries a value
+    // for it; `always` columns are the table's identity and stay put.
+    // Every cell is evaluated exactly once — the presence probe and the
+    // emitted cells read the same matrix, so they cannot diverge.
+    let columns = catalog_columns();
+    let matrix: Vec<Vec<Option<String>>> = features
+        .iter()
+        .map(|f| columns.iter().map(|c| (c.value)(f)).collect())
+        .collect();
+    let active: Vec<usize> = (0..columns.len())
+        .filter(|&i| columns[i].always || matrix.iter().any(|row| row[i].is_some()))
+        .collect();
+    let headers: Vec<&str> = active.iter().map(|&i| columns[i].header).collect();
+    let _ = writeln!(out, "| {} |", headers.join(" | "));
+    let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
+    for row in &matrix {
+        let cells: Vec<&str> = active
+            .iter()
+            .map(|&i| row[i].as_deref().unwrap_or("—"))
+            .collect();
+        let _ = writeln!(out, "| {} |", cells.join(" | "));
     }
     if !features.is_empty() {
         out.push_str("\n## Details\n");
@@ -829,7 +907,7 @@ type = \"feature\"\n";
         f.frontmatter.area = vec!["CLI | TUI".into()];
         f.body = "Support `a | b` operator.".into();
         let out = render(&[f], &cfg());
-        // The row must carry exactly the 9 intended column separators plus
+        // The row must carry only the intended column separators plus
         // the two escaped literals — never a raw unescaped `|` in the text.
         // The summary strips code-span backticks; pipe-escaping still applies.
         assert!(out.contains("CLI \\| TUI"));
@@ -847,10 +925,18 @@ type = \"feature\"\n";
 
     #[test]
     fn render_shows_dash_when_horizon_absent() {
+        // Alone, an absent horizon drops the column entirely…
         let mut f = feat("f-x", Status::Todo, "unused", "v0.2.x");
         f.frontmatter.horizon = None;
-        let out = render(&[f], &cfg());
-        assert!(out.contains("| [f-x](#f-x) | feature | — | — | arch | — | ☐ | v0.2.x |"));
+        let out = render(&[f.clone()], &cfg());
+        assert!(!out.contains("Horizon"));
+        // …but once any feature carries one, the gap renders as `—`.
+        let g = feat("f-y", Status::Todo, "next", "v0.2.x");
+        let out = render(&[f, g], &cfg());
+        assert!(
+            out.contains("| [f-x](#f-x) | feature | arch | — | ☐ | v0.2.x |"),
+            "got:\n{out}"
+        );
     }
 
     #[test]
@@ -859,7 +945,43 @@ type = \"feature\"\n";
         f.frontmatter.item_type = "fix".into();
         f.frontmatter.severity = Some("major".into());
         let out = render(&[f], &cfg());
-        assert!(out.contains("| fix | major | — |"));
+        assert!(out.contains("| fix | major |"));
+    }
+
+    #[test]
+    fn render_omits_axis_columns_no_feature_uses() {
+        // The stock `feat` carries no class/severity and no effort, so
+        // those two columns must vanish; the axes it does carry stay.
+        let f = feat("f-x", Status::Todo, "next", "v0.2.x");
+        let out = render(&[f], &cfg());
+        assert!(out.contains("| ID | Type | Area | Horizon | Status | Target | Summary |"));
+        assert!(out.contains("|---|---|---|---|---|---|---|\n"));
+        assert!(!out.contains("Class/Sev"));
+        assert!(!out.contains("Effort"));
+        assert!(out.contains("| [f-x](#f-x) | feature | arch | next | ☐ | v0.2.x |"));
+    }
+
+    #[test]
+    fn render_keeps_partially_used_axis_column_with_dash() {
+        // One feature has an effort and an empty target, the other the
+        // reverse: both columns must appear, with `—` filling the gaps.
+        let mut a = feat("f-a", Status::Todo, "next", "v0.2.x");
+        a.frontmatter.effort = Some("M".into());
+        a.frontmatter.target = Vec::new();
+        let b = feat("f-b", Status::Todo, "next", "v0.2.x");
+        let out = render(&[a, b], &cfg());
+        assert!(out.contains("| ID | Type | Effort | Area | Horizon | Status | Target | Summary |"));
+        assert!(out.contains("| [f-a](#f-a) | feature | M | arch | next | ☐ | — |"));
+        assert!(out.contains("| [f-b](#f-b) | feature | — | arch | next | ☐ | v0.2.x |"));
+    }
+
+    #[test]
+    fn render_empty_catalog_keeps_identity_columns() {
+        // No features → no axis has a value; only the identity columns
+        // remain and the separator row matches their count.
+        let out = render(&[], &cfg());
+        assert!(out.contains("| ID | Status | Summary |"));
+        assert!(out.contains("|---|---|---|\n"));
     }
 
     #[test]
