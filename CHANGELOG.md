@@ -19,7 +19,10 @@ and this project adheres to
   stray frontmatter key generated yesterday and destroys its roadmap
   today. `--output` renders the whole document first, then writes it via
   a sibling temp file and a rename, so a failing run leaves the previous
-  file byte-identical. stdout stays the default, so
+  file byte-identical. The write keeps what the redirect gave you: a
+  symlinked destination is written *through* rather than replaced, an
+  existing file keeps its permission bits, and the staged data is synced
+  before the rename. stdout stays the default, so
   `roadmark generate | diff ROADMAP.md -` and existing pipelines are
   unaffected. ([#41](https://github.com/bastien-gallay/roadmark/issues/41))
 
