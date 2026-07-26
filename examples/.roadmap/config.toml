@@ -1,4 +1,4 @@
-# Bucket order for sorting and section emission. Earliest cycle first.
+# Bucket order for sorting. Earliest cycle first.
 versions = ["v0.1", "v0.2", "v0.3", "Later", "Speculative"]
 
 # H1 heading of the generated ROADMAP.md. Optional, defaults to "Roadmap".
