@@ -133,6 +133,17 @@ Subcommand modules follow the same split:
   the rule exists to prevent. `#[serde(deny_unknown_fields)]` on
   `Frontmatter` is load-bearing here, not decoration: with the axes
   optional, a typo'd key would otherwise parse as an absent field.
+- **Under `split_by_bucket`, a column is dropped only when the heading
+  carries the *whole* value.** The bucket column vanishes inside its own
+  section, but only for a feature with exactly one target that
+  `versions` declares. A multi-valued `target` keeps its cell (only the
+  first entry picks the section) and so does an undeclared one (no
+  heading can carry it). Getting this wrong deletes data from the
+  generated document rather than merely formatting it oddly — it shipped
+  once, caught by the `minimal` fixture's `["v0.2.x", "v0.3"]`. Keep a
+  multi-valued target in that fixture. The column-presence probe also
+  spans every feature, not each section's rows: a per-section probe
+  would let a column appear and vanish down the page.
 
 ## Conventions
 
