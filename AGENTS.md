@@ -131,3 +131,17 @@ Subcommand modules follow the same split:
 - Errors: `anyhow` with `.context(...)` naming the file being processed;
   no `unwrap`/`expect` outside tests.
 - Markdown prose is linted with markdownlint; keep lines wrapped.
+- **Two branches green in isolation are not a mergeable pair, and the
+  conflict git shows you is not the whole incompatibility.** This is one
+  crate whose surface is mostly `lib.rs`, so parallel work on separate
+  issues lands on the same few items — `Frontmatter`, `render`, the
+  catalog. PRs #29 (`horizon: String` → `Option<String>`) and #30
+  (conditional columns) each passed their own suite. Merging them
+  produced *one* conflict, in `render`; resolving it left a second
+  incompatibility git could not see — a column closure elsewhere in the
+  file still read the field at its old type (`E0599: no method
+  is_empty on &Option<String>`). Past that, two tests pinned
+  contradictory contracts (`—` cell vs. omitted column). So: when work
+  has run in parallel, compile *and* test the merged tree, and stack the
+  branches — rebase the second on the first and retarget its base —
+  rather than merging both into `main` and finding out there.
