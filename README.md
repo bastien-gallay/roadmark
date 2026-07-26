@@ -181,6 +181,7 @@ it drives sort order and the shipped tier, so it stays a fixed enum — see
 # .roadmap/config.toml
 versions = ["v0.1", "v0.2", "v0.3", "Later"]   # sort buckets, earliest first
 title = "My Project — Roadmap"                  # H1 of the generated doc
+split_by_bucket = false                         # one catalog per bucket (see Generate)
 
 [fields.type]
 values = ["feature", "fix", "chore"]
@@ -221,6 +222,55 @@ the catalog is sorted by a total key (target bucket → status → horizon →
 Catalog columns for axes no feature uses (e.g. `Target` or `Effort` in a
 project that never sets them) are omitted; a partially used axis keeps
 its column, with `—` for features that carry no value.
+
+#### One catalog per bucket
+
+By default the catalog is a single table and `versions` only sorts it.
+A roadmap whose *shape* is its buckets — MoSCoW, quarters, release
+trains — can get one `##` section per bucket instead:
+
+```toml
+versions = ["Must", "Should", "Could", "Backlog"]
+split_by_bucket = true            # default false
+bucket_label = "Priority"         # optional: renames the `Target` column
+unbucketed_label = "Unsorted"     # optional: heading for the tail section
+```
+
+```markdown
+## Must
+
+| ID | Type | Area | Status | Summary |
+|---|---|---|---|---|
+…
+
+## Should
+…
+
+## Details
+```
+
+Sections follow the declared `versions` order — the same order the sort
+uses, so rows keep their global ordering. The bucket column drops out
+inside its own section (the heading already carries it), exactly as an
+unused axis drops its column — but only when the heading carries the
+*whole* value: a single, declared target. A multi-valued
+`target = ["v0.2", "v0.3"]` keeps its cell, because only the first entry
+picks the section, and so does a target `versions` doesn't declare,
+because no heading can carry it at all. Splitting never hides a value.
+
+A declared-but-empty bucket emits no heading, and a repeated `versions`
+entry emits its section once. Features with no `target` — or an
+undeclared one — collect in a trailing **Unscheduled** section. A
+project with no features yet keeps the flat `Feature catalog` heading:
+there is nothing to split.
+
+`## Details` stays flat and stays one list: it is anchor-addressed and
+the catalog links into it, so splitting it would double the anchor
+surface for no navigational gain.
+
+It is opt-in because it rewrites every line of the generated file. For a
+project with few features, or no meaningful bucket axis, the flat table
+is the right output.
 
 ### 3. Validate — the guarantee
 

@@ -776,8 +776,8 @@ mod tests {
         Config {
             versions: vec!["v0.2.x".into()],
             title: "T".into(),
-            source_note: None,
             fields,
+            ..Config::default()
         }
     }
 

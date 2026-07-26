@@ -10,6 +10,25 @@ and this project adheres to
 
 ### Added
 
+- **`split_by_bucket = true`: one catalog section per bucket.** Until
+  now `versions` was only a sort key, so a roadmap organised *by* its
+  buckets — MoSCoW, quarters, release trains — flattened to one long
+  table with a `Target` column, losing the top-level shape a reader
+  navigates by. With the flag set, `render` emits one `##`-headed
+  catalog per bucket in the declared order; the bucket column drops out
+  inside its own section, an empty bucket emits no heading, and features
+  with no `target` collect in a trailing `Unscheduled` section. The
+  column drops only where the heading carries the whole value — a single
+  declared target; a multi-valued `target` keeps its cell (only the first
+  entry picks the section) and so does an undeclared one (no heading can
+  carry it), so splitting never hides a value.
+  `## Details` stays flat and stays one list: it is anchor-addressed and
+  the catalog links into it. Opt-in, because it rewrites every line of
+  the generated file. Two optional labels come with it, since `versions`
+  is a bucket order and not necessarily a release axis:
+  `bucket_label` renames the `Target` column and `unbucketed_label`
+  renames the trailing section.
+  ([#35](https://github.com/bastien-gallay/roadmark/issues/35))
 - **`generate -o/--output <path>`, which cannot destroy the file it
   writes.** The documented recipe `roadmark generate > ROADMAP.md` has
   the *shell* truncate `ROADMAP.md` to zero bytes before roadmark runs,
@@ -96,6 +115,12 @@ and this project adheres to
 
 - The README quick start, the `rename` hint, and the generated banner's
   `source_note` now show the `-o` form rather than the redirection.
+- **`Config` gained three fields (breaking: library API).**
+  `split_by_bucket`, `bucket_label` and `unbucketed_label`. `.roadmap/`
+  trees are unaffected — all three default off — but a struct literal
+  `Config { .. }` in downstream code no longer compiles. `Config` now
+  implements `Default`, so `..Config::default()` covers this addition
+  and the next one.
 
 ## [0.6.0] - 2026-07-26
 

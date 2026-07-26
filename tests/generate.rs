@@ -27,6 +27,22 @@ fn minimal_fixture_round_trip() {
     insta::assert_snapshot!(out);
 }
 
+/// Same fixture, `split_by_bucket` on: a snapshot of the whole document
+/// so the section layout — headings, blank lines, the dropped bucket
+/// column, the still-flat `## Details` — is pinned end to end.
+///
+/// The config is flipped in code rather than in a second fixture tree so
+/// the two snapshots stay a true before/after of the same features.
+#[test]
+fn minimal_fixture_split_by_bucket() {
+    let root = fixture("minimal");
+    let mut config = roadmark::load_config(&root).unwrap();
+    config.split_by_bucket = true;
+    let mut features = roadmark::load_features(&root).unwrap();
+    roadmark::sort_features(&mut features, &config);
+    insta::assert_snapshot!(roadmark::render(&features, &config));
+}
+
 /// `generate --output` must write the same bytes the stdout form emits.
 #[test]
 fn output_flag_writes_the_rendered_document() {

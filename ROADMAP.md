@@ -17,6 +17,7 @@
 | [F-ci-publish](#f-ci-publish) | chore | — | M | release | shipped | ✅ | v0.5 | Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a v<semver> tag ships the crate with no … |
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 | [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | now | 🚧 | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
+| [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
 | [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | now | 🚧 | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
@@ -120,6 +121,16 @@ v0.6.0, whose three breaking changes this is.
 The documented recipe `roadmark generate > ROADMAP.md` has the shell truncate the destination to zero bytes *before* the binary runs — any error emptied the roadmap and wrote nothing in its place. [F-schema-v2](#f-schema-v2)'s `deny_unknown_fields` (0.6.0) is what made it fire in practice: a tree carrying one stray frontmatter key generated fine yesterday and destroys its roadmap today, at the exact moment the user is already confused by an error they have never seen.
 
 stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existing pipelines are unaffected.
+
+### <a id="f-bucket-sections"></a>F-bucket-sections
+
+`split_by_bucket = true` emits one `##`-headed catalog per bucket instead of a single flat table, in the order `versions` declares.
+
+`versions` was only ever a sort key, so a roadmap whose *shape* is its buckets — MoSCoW, quarters, release trains — flattened into one long table with a `Target` column. Nothing was lost, but the top-level structure a reader navigates by was, and the buckets had to wear a column heading that named a release axis they were not.
+
+The section carries the bucket, so the bucket column drops out inside it — the same rule that drops a column no feature holds. It drops only where the heading carries the *whole* value, though: a multi-valued `target` keeps its cell because only the first entry picks the section, and an undeclared target keeps its because no heading can carry it. Empty buckets emit no heading, untargeted features collect in a trailing section, and `## Details` stays flat and stays one list because it is anchor-addressed and the catalog links into it.
+
+Opt-in, because it rewrites every line of the generated file. `bucket_label` and `unbucketed_label` come with it: `versions` is a bucket order, and the vocabulary belongs to the project rather than to this binary.
 
 ### <a id="f-validate-refs"></a>F-validate-refs
 
