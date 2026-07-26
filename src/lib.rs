@@ -9,7 +9,7 @@ pub mod validate;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// One feature: TOML frontmatter + raw markdown body.
@@ -175,12 +175,57 @@ pub struct Config {
     /// "DO NOT EDIT" banner — e.g. a pointer to an ADR or design doc.
     #[serde(default)]
     pub source_note: Option<String>,
+    /// Emit one catalog table per bucket, `##`-headed and ordered by
+    /// [`Config::versions`], instead of a single flat table.
+    ///
+    /// Opt-in (default `false`) because it rewrites every line of the
+    /// generated document: for a project with few features, or no
+    /// meaningful bucket axis, the flat table is the right output.
+    #[serde(default)]
+    pub split_by_bucket: bool,
+    /// Header for the bucket column, when one is emitted. Defaults to
+    /// `"Target"`.
+    ///
+    /// `versions` is a bucket order, not necessarily a release axis — a
+    /// project bucketing by MoSCoW wants `Priority`, not `Target`.
+    #[serde(default)]
+    pub bucket_label: Option<String>,
+    /// Heading for the trailing section holding features whose first
+    /// `target` is not a declared bucket (or absent). Defaults to
+    /// `"Unscheduled"`. Only consulted when `split_by_bucket` is set.
+    #[serde(default)]
+    pub unbucketed_label: Option<String>,
     /// Per-field allowed-value declarations, keyed by field name
     /// (`type`, `class`, `effort`, `area`, `horizon`, `severity`).
     /// `BTreeMap` so validation errors emit in a stable order.
     #[serde(default)]
     pub fields: BTreeMap<String, FieldSpec>,
 }
+
+/// An empty project: no buckets, no field declarations, everything
+/// off. Exists so callers building a `Config` in code — and every test
+/// that only cares about two fields — can spell the rest
+/// `..Config::default()` instead of tracking each new option.
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            versions: Vec::new(),
+            title: default_title(),
+            source_note: None,
+            split_by_bucket: false,
+            bucket_label: None,
+            unbucketed_label: None,
+            fields: BTreeMap::new(),
+        }
+    }
+}
+
+/// Column header used when the project declares no [`Config::bucket_label`].
+const DEFAULT_BUCKET_LABEL: &str = "Target";
+
+/// Heading for the tail section when the project declares no
+/// [`Config::unbucketed_label`].
+const DEFAULT_UNBUCKETED_LABEL: &str = "Unscheduled";
 
 /// Declares the allowed values (and shape) of one schema field, so the
 /// project — not this binary — owns its taxonomy.
@@ -450,13 +495,21 @@ fn escape_cell(s: &str) -> String {
 /// `value` returning `None` means "this feature has no value for the
 /// axis" — a non-`always` column is omitted entirely when every feature
 /// returns `None`, and a present column renders `None` cells as `—`.
-struct CatalogColumn {
-    header: &'static str,
+struct CatalogColumn<'a> {
+    /// Owned, not `&'static str`: the bucket column's header is
+    /// project-declared ([`Config::bucket_label`]).
+    header: String,
     /// Table identity (`ID` / `Status` / `Summary`): emitted even when
     /// a value would be empty, so the catalog shape is stable.
     always: bool,
-    value: fn(&Feature) -> Option<String>,
+    value: CellFn<'a>,
 }
+
+/// How a column reads one feature's cell. Boxed rather than a plain `fn`
+/// pointer so a column can close over the config — the bucket column's
+/// cell depends on which buckets are declared and on whether sections
+/// carry them.
+type CellFn<'a> = Box<dyn Fn(&Feature) -> Option<String> + 'a>;
 
 /// One axis column's cell: the feature's values for `axis`, joined, or
 /// `None` when it carries none — the `None` that makes the column
@@ -469,64 +522,137 @@ fn axis_cell(f: &Feature, axis: &str) -> Option<String> {
 
 /// The catalog columns in emission order. Axis columns are conditional:
 /// a project that never uses an axis gets no column for it.
-fn catalog_columns() -> [CatalogColumn; 9] {
-    [
+fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
+    let declared: HashSet<&str> = config.versions.iter().map(String::as_str).collect();
+    let split = config.split_by_bucket;
+    vec![
         CatalogColumn {
-            header: "ID",
+            header: "ID".into(),
             always: true,
             // Escaped as a whole: a `|` in a hand-written id would
             // otherwise open a phantom column and shift every cell after.
-            value: |f| {
+            value: Box::new(|f| {
                 let id = &f.frontmatter.id;
                 Some(escape_cell(&format!("[{id}](#{aid})", aid = anchor_id(id))))
-            },
+            }),
         },
         CatalogColumn {
-            header: "Type",
+            header: "Type".into(),
             always: false,
-            value: |f| axis_cell(f, "type"),
+            value: Box::new(|f| axis_cell(f, "type")),
         },
         CatalogColumn {
-            header: "Class/Sev",
+            header: "Class/Sev".into(),
             always: false,
             // `class` (feature-only) and `severity` (fix-only) are
             // mutually exclusive by taxonomy, so they share one column.
-            value: |f| axis_cell(f, "class").or_else(|| axis_cell(f, "severity")),
+            value: Box::new(|f| axis_cell(f, "class").or_else(|| axis_cell(f, "severity"))),
         },
         CatalogColumn {
-            header: "Effort",
+            header: "Effort".into(),
             always: false,
-            value: |f| axis_cell(f, "effort"),
+            value: Box::new(|f| axis_cell(f, "effort")),
         },
         CatalogColumn {
-            header: "Area",
+            header: "Area".into(),
             always: false,
-            value: |f| axis_cell(f, "area"),
+            value: Box::new(|f| axis_cell(f, "area")),
         },
         CatalogColumn {
-            header: "Horizon",
+            header: "Horizon".into(),
             always: false,
-            value: |f| axis_cell(f, "horizon"),
+            value: Box::new(|f| axis_cell(f, "horizon")),
         },
         CatalogColumn {
-            header: "Status",
+            header: "Status".into(),
             always: true,
-            value: |f| Some(f.frontmatter.status.glyph().to_string()),
+            value: Box::new(|f| Some(f.frontmatter.status.glyph().to_string())),
         },
         CatalogColumn {
-            header: "Target",
+            header: config
+                .bucket_label
+                .clone()
+                .unwrap_or_else(|| DEFAULT_BUCKET_LABEL.to_string()),
             always: false,
-            value: |f| {
+            // Conditional twice over. Absent like any other axis when no
+            // feature carries a `target`; and under `split_by_bucket` the
+            // section heading already names the bucket, so a feature whose
+            // first target is *declared* needs no cell — leaving the column
+            // to disappear on its own via the usual all-`None` rule. A
+            // feature the headings can't carry (undeclared target) keeps
+            // its cell, so splitting never hides a value.
+            value: Box::new(move |f| {
                 let t = &f.frontmatter.target;
-                (!t.is_empty()).then(|| escape_cell(&t.join(" → ")))
-            },
+                if t.is_empty() {
+                    return None;
+                }
+                if split && t.first().is_some_and(|v| declared.contains(v.as_str())) {
+                    return None;
+                }
+                Some(escape_cell(&t.join(" → ")))
+            }),
         },
         CatalogColumn {
-            header: "Summary",
+            header: "Summary".into(),
             always: true,
-            value: |f| Some(escape_cell(&summary(&f.body))),
+            value: Box::new(|f| Some(escape_cell(&summary(&f.body)))),
         },
     ]
+}
+
+/// The feature's bucket, when its first `target` names a declared one.
+///
+/// `None` covers both "no target" and "a target `versions` doesn't
+/// declare" — the two cases `sort_features` already ranks together at the
+/// tail, so grouping and sorting agree without a second rule.
+fn declared_bucket<'a>(f: &'a Feature, declared: &HashSet<&str>) -> Option<&'a str> {
+    f.frontmatter
+        .target
+        .first()
+        .map(String::as_str)
+        .filter(|t| declared.contains(t))
+}
+
+/// The catalog rows, grouped for emission: `(heading, row indices)` pairs.
+///
+/// Indices rather than features so the caller can read the cell matrix it
+/// already built — every cell stays evaluated exactly once, which is what
+/// keeps the column-presence probe and the emitted cells in step.
+///
+/// Flat mode is one group under `Feature catalog`. Under
+/// `split_by_bucket` the groups follow [`Config::versions`] order — the
+/// same order `sort_features` ranks by, so a section's rows keep the
+/// document's global ordering — with a trailing group for features whose
+/// first `target` is not a declared bucket (or absent), which is where
+/// `sort_features` already puts them. An empty bucket yields no group, so
+/// a declared-but-unused bucket leaves no hole.
+fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usize>)> {
+    if !config.split_by_bucket {
+        return vec![("Feature catalog".to_string(), (0..features.len()).collect())];
+    }
+    let declared: HashSet<&str> = config.versions.iter().map(String::as_str).collect();
+    let indices_where = |keep: &dyn Fn(Option<&str>) -> bool| -> Vec<usize> {
+        features
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| keep(declared_bucket(f, &declared)))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let mut groups: Vec<(String, Vec<usize>)> = config
+        .versions
+        .iter()
+        .map(|v| (v.clone(), indices_where(&|b| b == Some(v.as_str()))))
+        .collect();
+    groups.push((
+        config
+            .unbucketed_label
+            .clone()
+            .unwrap_or_else(|| DEFAULT_UNBUCKETED_LABEL.to_string()),
+        indices_where(&|b| b.is_none()),
+    ));
+    groups.retain(|(_, rows)| !rows.is_empty());
+    groups
 }
 
 pub fn render(features: &[Feature], config: &Config) -> String {
@@ -542,12 +668,16 @@ pub fn render(features: &[Feature], config: &Config) -> String {
         let _ = write!(out, " {}", note.replace("-->", "--&gt;"));
     }
     out.push_str(" -->\n\n");
-    out.push_str("## Feature catalog\n\n");
     // Only emit an axis column when at least one feature carries a value
     // for it; `always` columns are the table's identity and stay put.
     // Every cell is evaluated exactly once — the presence probe and the
     // emitted cells read the same matrix, so they cannot diverge.
-    let columns = catalog_columns();
+    //
+    // The probe spans *every* feature, not each section's own rows: one
+    // column set for the whole document keeps the tables comparable, and
+    // a per-section set would let a column appear and vanish down the
+    // page for the same project.
+    let columns = catalog_columns(config);
     let matrix: Vec<Vec<Option<String>>> = features
         .iter()
         .map(|f| columns.iter().map(|c| (c.value)(f)).collect())
@@ -555,15 +685,24 @@ pub fn render(features: &[Feature], config: &Config) -> String {
     let active: Vec<usize> = (0..columns.len())
         .filter(|&i| columns[i].always || matrix.iter().any(|row| row[i].is_some()))
         .collect();
-    let headers: Vec<&str> = active.iter().map(|&i| columns[i].header).collect();
-    let _ = writeln!(out, "| {} |", headers.join(" | "));
-    let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
-    for row in &matrix {
-        let cells: Vec<&str> = active
-            .iter()
-            .map(|&i| row[i].as_deref().unwrap_or("—"))
-            .collect();
-        let _ = writeln!(out, "| {} |", cells.join(" | "));
+    let headers: Vec<&str> = active.iter().map(|&i| columns[i].header.as_str()).collect();
+    for (n, (heading, rows)) in catalog_groups(features, config).into_iter().enumerate() {
+        // Separator goes *before* each group but the first, so the last
+        // table ends flush against whatever follows — `## Details` brings
+        // its own leading blank line, as it always has.
+        if n > 0 {
+            out.push('\n');
+        }
+        let _ = writeln!(out, "## {heading}\n");
+        let _ = writeln!(out, "| {} |", headers.join(" | "));
+        let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
+        for row in rows.into_iter().map(|i| &matrix[i]) {
+            let line: Vec<&str> = active
+                .iter()
+                .map(|&i| row[i].as_deref().unwrap_or("—"))
+                .collect();
+            let _ = writeln!(out, "| {} |", line.join(" | "));
+        }
     }
     if !features.is_empty() {
         out.push_str("\n## Details\n");
@@ -756,9 +895,8 @@ mod tests {
         );
         Config {
             versions: vec!["v0.2.x".into(), "v0.3".into(), "v0.4".into()],
-            title: "Roadmap".into(),
-            source_note: None,
             fields,
+            ..Config::default()
         }
     }
 
@@ -1036,7 +1174,7 @@ type = \"feature\"\n";
             versions: vec!["v1".into()],
             title: "My Project — Roadmap".into(),
             source_note: Some("See docs/adr.".into()),
-            fields: BTreeMap::new(),
+            ..Config::default()
         };
         let out = render(&[], &config);
         assert!(out.starts_with("# My Project — Roadmap\n\n"));
@@ -1156,6 +1294,102 @@ type = \"feature\"\n";
         assert!(out.contains("| ID | Type | Effort | Area | Horizon | Status | Target | Summary |"));
         assert!(out.contains("| [f-a](#f-a) | feature | M | arch | next | ☐ | — |"));
         assert!(out.contains("| [f-b](#f-b) | feature | — | arch | next | ☐ | v0.2.x |"));
+    }
+
+    /// `cfg()` with per-bucket sections turned on.
+    fn cfg_split() -> Config {
+        Config {
+            split_by_bucket: true,
+            ..cfg()
+        }
+    }
+
+    #[test]
+    fn split_by_bucket_emits_one_catalog_per_declared_bucket() {
+        let out = render(
+            &[
+                feat("f-a", Status::Todo, "now", "v0.2.x"),
+                feat("f-b", Status::Todo, "now", "v0.4"),
+            ],
+            &cfg_split(),
+        );
+        // Sections replace the single flat catalog, in `versions` order.
+        assert!(!out.contains("## Feature catalog"), "got {out}");
+        let a = out.find("## v0.2.x").expect("first bucket heading");
+        let b = out.find("## v0.4").expect("second bucket heading");
+        assert!(a < b, "buckets out of declared order:\n{out}");
+        // The heading carries the bucket, so the column drops out.
+        assert!(!out.contains("| Target |"), "got {out}");
+        // `## Details` stays flat and stays one list.
+        assert_eq!(out.matches("## Details").count(), 1, "got {out}");
+        assert!(out.find("## Details").unwrap() > b, "got {out}");
+    }
+
+    #[test]
+    fn split_by_bucket_emits_no_heading_for_an_empty_bucket() {
+        // `cfg()` declares v0.2.x, v0.3, v0.4; only v0.3 is used.
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.3")], &cfg_split());
+        assert!(out.contains("## v0.3"), "got {out}");
+        assert!(!out.contains("## v0.2.x"), "got {out}");
+        assert!(!out.contains("## v0.4"), "got {out}");
+    }
+
+    #[test]
+    fn split_by_bucket_collects_untargeted_features_in_a_trailing_section() {
+        let mut loose = feat("f-loose", Status::Todo, "now", "v0.2.x");
+        loose.frontmatter.target = Vec::new();
+        let out = render(
+            &[feat("f-a", Status::Todo, "now", "v0.2.x"), loose],
+            &cfg_split(),
+        );
+        let bucket = out.find("## v0.2.x").expect("bucket heading");
+        let tail = out.find("## Unscheduled").expect("tail heading");
+        assert!(bucket < tail, "tail section not last:\n{out}");
+        assert!(out[tail..].contains("[f-loose](#f-loose)"), "got {out}");
+    }
+
+    #[test]
+    fn split_by_bucket_keeps_the_bucket_column_for_an_undeclared_target() {
+        // `v9.9` is not in `versions`, so no heading can carry it — the
+        // column has to stay, or splitting would swallow the value.
+        let mut stray = feat("f-stray", Status::Todo, "now", "v9.9");
+        stray.frontmatter.target = vec!["v9.9".into()];
+        let out = render(
+            &[feat("f-a", Status::Todo, "now", "v0.2.x"), stray],
+            &cfg_split(),
+        );
+        assert!(out.contains("| Target |"), "got {out}");
+        assert!(out.contains("| [f-stray](#f-stray) |"), "got {out}");
+        assert!(out.contains("| v9.9 |"), "got {out}");
+        // The feature that *is* in a section still leaves its cell empty.
+        assert!(
+            out.contains("| [f-a](#f-a) | feature | arch | now | ☐ | — |"),
+            "got {out}"
+        );
+    }
+
+    #[test]
+    fn bucket_label_renames_the_bucket_column() {
+        let config = Config {
+            bucket_label: Some("Priority".into()),
+            ..cfg()
+        };
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config);
+        assert!(out.contains("| Priority |"), "got {out}");
+        assert!(!out.contains("| Target |"), "got {out}");
+    }
+
+    #[test]
+    fn unbucketed_label_renames_the_trailing_section() {
+        let mut loose = feat("f-loose", Status::Todo, "now", "v0.2.x");
+        loose.frontmatter.target = Vec::new();
+        let config = Config {
+            unbucketed_label: Some("Needs definition".into()),
+            ..cfg_split()
+        };
+        let out = render(&[loose], &config);
+        assert!(out.contains("## Needs definition"), "got {out}");
+        assert!(!out.contains("## Unscheduled"), "got {out}");
     }
 
     #[test]
@@ -1323,7 +1557,7 @@ type = \"feature\"\n";
             versions: vec!["v1".into()],
             title: "T".into(),
             source_note: Some("see foo --> bar".into()),
-            fields: BTreeMap::new(),
+            ..Config::default()
         };
         let out = render(&[], &config);
         // The only `-->` in the output is the banner's own closing fence.
