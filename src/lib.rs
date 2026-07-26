@@ -580,6 +580,89 @@ pub fn load_features(root: &Path) -> Result<Vec<Feature>> {
     Ok(out)
 }
 
+/// Write `contents` to `path` atomically: a sibling temp file first, then a
+/// rename over the destination.
+///
+/// The point is the *failure* path, not the success one. `roadmark generate >
+/// ROADMAP.md` has the shell truncate the destination to zero bytes before the
+/// binary runs, so any error — an unparseable feature file, a missing config —
+/// leaves the committed roadmap empty and nothing written in its place. Going
+/// through a temp file removes the shell from the write path: the destination
+/// is untouched until a complete document exists on disk.
+///
+/// The temp file is a sibling (same directory, so the rename stays within one
+/// filesystem and is therefore atomic), named per-process so concurrent runs
+/// in the same directory can't clobber each other's staging file. It is
+/// removed on any failure after creation, so a failed run leaves no litter.
+///
+/// Two behaviours the shell redirect had and a naive rename would lose, both
+/// restored here: a symlinked destination is written *through* rather than
+/// replaced, and an existing destination keeps its permission bits.
+pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+    // `fs::rename` does not follow a symlink at the destination — it swaps the
+    // link itself for a regular file and leaves the real document stale, which
+    // is exactly the silent-staleness a docs-site checkout would hit. Resolve
+    // the link so the temp file lands beside the *target*. A dangling or
+    // otherwise unresolvable link falls back to the path as given.
+    let resolved = match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => std::fs::canonicalize(path).ok(),
+        _ => None,
+    };
+    let path = resolved.as_deref().unwrap_or(path);
+
+    // A bare relative filename (`ROADMAP.md`) has an empty parent, which is
+    // not a directory any temp file can live in — that's the current one.
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("not a file path: {}", path.display()))?;
+    let mut tmp_name = name.to_os_string();
+    tmp_name.push(format!(".roadmark-tmp-{}", std::process::id()));
+    let tmp = dir.join(tmp_name);
+
+    // The temp file is created fresh at `0666 & !umask`; without this the
+    // rename would widen (or otherwise reset) a deliberately restricted mode
+    // on every regen.
+    let perms = std::fs::metadata(path).ok().map(|m| m.permissions());
+
+    if let Err(e) = stage(&tmp, contents, perms) {
+        // Cleanup covers the write itself, not just the rename: a failure
+        // partway through `write_all` would otherwise strand a truncated
+        // staging file in the user's working tree.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("writing temp file {}", tmp.display()));
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("replacing {}", path.display()));
+    }
+    // Best-effort: persist the directory entry, so the rename survives a crash
+    // too. Opening a directory isn't portable (it fails on Windows), and the
+    // roadmap is regenerable, so a failure here is not worth reporting.
+    let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    Ok(())
+}
+
+/// Write the staging file and get it onto the disk before it is renamed into
+/// place: atomic against *errors* is not atomic against a crash, and on
+/// several filesystems an unsynced rename can surface as a zero-length
+/// destination after a power loss — the very outcome `write_atomic` exists to
+/// prevent.
+fn stage(tmp: &Path, contents: &str, perms: Option<std::fs::Permissions>) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(tmp)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    if let Some(perms) = perms {
+        std::fs::set_permissions(tmp, perms)?;
+    }
+    Ok(())
+}
+
 pub fn load_config(root: &Path) -> Result<Config> {
     let path = root.join("config.toml");
     let src =
@@ -1023,6 +1106,115 @@ type = \"feature\"\n";
         };
         assert_eq!(shipped_line(&bare).unwrap(), "Shipped in v1.");
         assert!(shipped_line(&Shipped::default()).is_none());
+    }
+
+    fn unique_tmp(label: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("roadmark-lib-{label}-{}-{n}", std::process::id()))
+    }
+
+    #[test]
+    fn write_atomic_creates_then_replaces() {
+        let dir = unique_tmp("atomic-replace");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("ROADMAP.md");
+
+        write_atomic(&target, "first\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "first\n");
+        write_atomic(&target, "second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "second\n");
+
+        // The staging file is renamed, not left behind: the directory holds
+        // exactly the destination.
+        let entries: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("ROADMAP.md")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A bare relative filename has an empty parent — the temp file has to
+    /// land in the current directory rather than at the filesystem root.
+    #[test]
+    fn write_atomic_handles_bare_relative_filename() {
+        let dir = unique_tmp("atomic-relative");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("out.md");
+        // Resolve the sibling-directory rule without depending on the
+        // process-wide cwd (tests share it): `dir/out.md` already exercises
+        // the `Some(parent)` arm, so assert the fallback arm directly.
+        assert_eq!(
+            Path::new("ROADMAP.md")
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty()),
+            None
+        );
+        write_atomic(&target, "x\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "x\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The destination must survive a failed write — that is the whole
+    /// reason the function exists (see #41).
+    #[test]
+    fn write_atomic_leaves_destination_intact_when_staging_fails() {
+        let dir = unique_tmp("atomic-fail");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("ROADMAP.md");
+        std::fs::write(&target, "PRECIOUS\n").unwrap();
+
+        // A destination whose parent does not exist: staging fails, so the
+        // rename never runs. The real file elsewhere is untouched.
+        let doomed = dir.join("missing-subdir").join("ROADMAP.md");
+        assert!(write_atomic(&doomed, "new\n").is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "PRECIOUS\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A published-docs checkout symlinks `ROADMAP.md` into the site tree; the
+    /// shell redirect wrote through the link, and so must we. Replacing the
+    /// link would leave the real document serving stale content forever.
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_writes_through_a_symlinked_destination() {
+        let dir = unique_tmp("atomic-symlink");
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        let real = dir.join("real").join("ROADMAP.md");
+        std::fs::write(&real, "old\n").unwrap();
+        let link = dir.join("ROADMAP.md");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_atomic(&link, "new\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new\n");
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The temp file is born at `0666 & !umask`; a deliberately restricted
+    /// destination must not be widened by a regen.
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_preserves_destination_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = unique_tmp("atomic-perms");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("ROADMAP.md");
+        std::fs::write(&target, "old\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        write_atomic(&target, "new\n").unwrap();
+
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

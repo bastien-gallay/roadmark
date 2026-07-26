@@ -1,7 +1,7 @@
 //! `roadmark` — CLI for the `.roadmap/` source-of-truth pipeline.
 //!
 //! Subcommands:
-//! - `generate`: render `ROADMAP.md` to stdout
+//! - `generate`: render `ROADMAP.md` to stdout, or atomically to `--output`
 //! - `validate`: schema, slug uniqueness, anchor drift
 //! - `add`: scaffold a new feature file
 //! - `rename`: rename a slug, moving the file and rewriting cross-links
@@ -39,8 +39,16 @@ enum Command {
         #[arg(long)]
         allow_legacy_numeric: bool,
     },
-    /// Generate ROADMAP.md from `.roadmap/` source. Writes to stdout.
-    Generate,
+    /// Generate ROADMAP.md from `.roadmap/` source. Writes to stdout
+    /// unless `--output` is given.
+    Generate {
+        /// Write to this file instead of stdout, via a temp file and a
+        /// rename — a failed run leaves the previous file untouched.
+        /// Prefer this over `generate > ROADMAP.md`, which has the shell
+        /// empty the destination before roadmark runs.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Validate the `.roadmap/` source: schema, slug uniqueness, anchor drift.
     Validate {
         /// Path to the on-disk `ROADMAP.md` to diff anchors against.
@@ -78,8 +86,8 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Generate => {
-            generate(&cli.root)?;
+        Command::Generate { output } => {
+            generate(&cli.root, output.as_deref())?;
             Ok(ExitCode::SUCCESS)
         },
         Command::Validate {
@@ -98,11 +106,21 @@ fn run() -> Result<ExitCode> {
     }
 }
 
-fn generate(root: &std::path::Path) -> Result<()> {
+/// Render the roadmap, then emit it — to `output` when given, else stdout.
+///
+/// Everything that can fail (config, feature parsing) happens *before* the
+/// first byte is written, and the file path goes through an atomic replace,
+/// so a failing run never destroys the roadmap it was asked to regenerate.
+fn generate(root: &std::path::Path, output: Option<&std::path::Path>) -> Result<()> {
     let config = roadmark::load_config(root).context("loading config.toml")?;
     let mut features = roadmark::load_features(root).context("loading features/")?;
     roadmark::sort_features(&mut features, &config);
-    print!("{}", roadmark::render(&features, &config));
+    let rendered = roadmark::render(&features, &config);
+    match output {
+        Some(path) => roadmark::write_atomic(path, &rendered)
+            .with_context(|| format!("writing {}", path.display()))?,
+        None => print!("{rendered}"),
+    }
     Ok(())
 }
 
@@ -142,7 +160,7 @@ fn rename_cmd(
         outcome.new_path.display()
     );
     println!("rewrote {} file(s)", outcome.rewritten.len());
-    eprintln!("hint: regenerate the roadmap (`roadmark generate > ROADMAP.md`)");
+    eprintln!("hint: regenerate the roadmap (`roadmark generate -o ROADMAP.md`)");
     Ok(ExitCode::SUCCESS)
 }
 

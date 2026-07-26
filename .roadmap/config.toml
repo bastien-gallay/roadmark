@@ -1,9 +1,9 @@
 # Bucket order for sorting. Earliest cycle first.
-versions = ["v0.1", "v0.2", "v0.3", "v0.4", "v0.5", "v0.6", "Later"]
+versions = ["v0.1", "v0.2", "v0.3", "v0.4", "v0.5", "v0.6", "v0.7", "Later"]
 
 title = "roadmark — Roadmap"
 
-source_note = "Edit files under .roadmap/, then run `roadmark generate > ROADMAP.md`."
+source_note = "Edit files under .roadmap/, then run `roadmark generate -o ROADMAP.md`."
 
 # Closed value-sets for the schema fields (schema v2). `validate` enforces
 # membership and the `required_when` conditionals below. Every field is
