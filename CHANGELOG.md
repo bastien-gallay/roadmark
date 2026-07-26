@@ -16,10 +16,12 @@ and this project adheres to
   table with a `Target` column, losing the top-level shape a reader
   navigates by. With the flag set, `render` emits one `##`-headed
   catalog per bucket in the declared order; the bucket column drops out
-  inside its own section (the heading carries it), an empty bucket emits
-  no heading, and features with no `target` collect in a trailing
-  `Unscheduled` section. A target `versions` does not declare keeps its
-  cell — no heading can carry it, so splitting never hides a value.
+  inside its own section, an empty bucket emits no heading, and features
+  with no `target` collect in a trailing `Unscheduled` section. The
+  column drops only where the heading carries the whole value — a single
+  declared target; a multi-valued `target` keeps its cell (only the first
+  entry picks the section) and so does an undeclared one (no heading can
+  carry it), so splitting never hides a value.
   `## Details` stays flat and stays one list: it is anchor-addressed and
   the catalog links into it. Opt-in, because it rewrites every line of
   the generated file. Two optional labels come with it, since `versions`

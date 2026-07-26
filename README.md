@@ -252,11 +252,17 @@ unbucketed_label = "Unsorted"     # optional: heading for the tail section
 Sections follow the declared `versions` order — the same order the sort
 uses, so rows keep their global ordering. The bucket column drops out
 inside its own section (the heading already carries it), exactly as an
-unused axis drops its column. A declared-but-empty bucket emits no
-heading. Features with no `target` — or a `target` that `versions`
-doesn't declare — collect in a trailing **Unscheduled** section, and
-because no heading can carry an *undeclared* target, the bucket column
-comes back for those rows rather than swallowing the value.
+unused axis drops its column — but only when the heading carries the
+*whole* value: a single, declared target. A multi-valued
+`target = ["v0.2", "v0.3"]` keeps its cell, because only the first entry
+picks the section, and so does a target `versions` doesn't declare,
+because no heading can carry it at all. Splitting never hides a value.
+
+A declared-but-empty bucket emits no heading, and a repeated `versions`
+entry emits its section once. Features with no `target` — or an
+undeclared one — collect in a trailing **Unscheduled** section. A
+project with no features yet keeps the flat `Feature catalog` heading:
+there is nothing to split.
 
 `## Details` stays flat and stays one list: it is anchor-addressed and
 the catalog links into it, so splitting it would double the anchor

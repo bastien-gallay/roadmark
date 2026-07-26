@@ -576,17 +576,24 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
             always: false,
             // Conditional twice over. Absent like any other axis when no
             // feature carries a `target`; and under `split_by_bucket` the
-            // section heading already names the bucket, so a feature whose
-            // first target is *declared* needs no cell — leaving the column
-            // to disappear on its own via the usual all-`None` rule. A
-            // feature the headings can't carry (undeclared target) keeps
-            // its cell, so splitting never hides a value.
+            // section heading already names the bucket, so such a feature
+            // needs no cell — leaving the column to disappear on its own
+            // via the usual all-`None` rule.
+            //
+            // Suppressed only when the heading carries the *whole* value:
+            // a single target, and a declared one. `target` is a list, and
+            // only its first entry picks the section — dropping the cell
+            // for `["v0.2", "v0.3"]` would erase `v0.3` from the document
+            // entirely, and an undeclared target has no heading to carry
+            // it at all. Either way the cell stays, so splitting never
+            // hides a value.
             value: Box::new(move |f| {
                 let t = &f.frontmatter.target;
                 if t.is_empty() {
                     return None;
                 }
-                if split && t.first().is_some_and(|v| declared.contains(v.as_str())) {
+                let carried_by_heading = t.len() == 1 && declared.contains(t[0].as_str()) && split;
+                if carried_by_heading {
                     return None;
                 }
                 Some(escape_cell(&t.join(" → ")))
@@ -626,8 +633,13 @@ fn declared_bucket<'a>(f: &'a Feature, declared: &HashSet<&str>) -> Option<&'a s
 /// first `target` is not a declared bucket (or absent), which is where
 /// `sort_features` already puts them. An empty bucket yields no group, so
 /// a declared-but-unused bucket leaves no hole.
+///
+/// A project with no features at all falls back to the flat group: there
+/// is nothing to split, and dropping every empty section would leave the
+/// document with no catalog and no header row — a shape flat mode never
+/// produces, and the one an `init`ed-but-unfilled tree would hit first.
 fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usize>)> {
-    if !config.split_by_bucket {
+    if !config.split_by_bucket || features.is_empty() {
         return vec![("Feature catalog".to_string(), (0..features.len()).collect())];
     }
     let declared: HashSet<&str> = config.versions.iter().map(String::as_str).collect();
@@ -639,9 +651,15 @@ fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usi
             .map(|(i, _)| i)
             .collect()
     };
+    // Deduplicated, first declaration wins. A repeated `versions` entry is
+    // a config mistake nothing rejects today, and emitting its section
+    // twice would put every one of its ID links — and so its `<a id>`
+    // anchor target — in the document twice.
+    let mut seen = HashSet::new();
     let mut groups: Vec<(String, Vec<usize>)> = config
         .versions
         .iter()
+        .filter(|v| seen.insert(v.as_str()))
         .map(|v| (v.clone(), indices_where(&|b| b == Some(v.as_str()))))
         .collect();
     groups.push((
@@ -1366,6 +1384,43 @@ type = \"feature\"\n";
             out.contains("| [f-a](#f-a) | feature | arch | now | ☐ | — |"),
             "got {out}"
         );
+    }
+
+    #[test]
+    fn split_by_bucket_keeps_the_bucket_column_for_a_multi_valued_target() {
+        // Only the *first* target picks the section, so the heading does
+        // not carry the rest — dropping the cell would erase `v0.4` from
+        // the document entirely.
+        let mut spanning = feat("f-span", Status::Todo, "now", "v0.2.x");
+        spanning.frontmatter.target = vec!["v0.2.x".into(), "v0.4".into()];
+        let out = render(&[spanning], &cfg_split());
+        assert!(out.contains("## v0.2.x"), "got {out}");
+        assert!(out.contains("| Target |"), "got {out}");
+        assert!(out.contains("v0.2.x → v0.4"), "got {out}");
+    }
+
+    #[test]
+    fn split_by_bucket_with_no_features_still_emits_a_catalog() {
+        // Every section would be empty; falling through to zero sections
+        // would leave a document with no catalog and no header row, which
+        // flat mode never produces.
+        let out = render(&[], &cfg_split());
+        assert!(out.contains("## Feature catalog"), "got {out}");
+        assert!(out.contains("| ID | Status | Summary |"), "got {out}");
+    }
+
+    #[test]
+    fn split_by_bucket_emits_a_repeated_version_once() {
+        // A duplicated `versions` entry is a config mistake nothing
+        // rejects; emitting its section twice would duplicate every ID
+        // link, and so every anchor target, in the same document.
+        let config = Config {
+            versions: vec!["v0.2.x".into(), "v0.3".into(), "v0.2.x".into()],
+            ..cfg_split()
+        };
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config);
+        assert_eq!(out.matches("## v0.2.x").count(), 1, "got {out}");
+        assert_eq!(out.matches("[f-a](#f-a)").count(), 1, "got {out}");
     }
 
     #[test]
