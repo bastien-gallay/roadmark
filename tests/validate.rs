@@ -129,7 +129,11 @@ fn feature_without_horizon_validates_clean() {
     let mut fs = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut fs, &config);
     let rendered = roadmark::render(&fs, &config);
-    assert!(rendered.contains("| — | ☐ |"), "horizon cell should be —");
+    // No feature carries a horizon → the column is omitted outright.
+    assert!(
+        !rendered.contains("Horizon"),
+        "horizon column should be omitted:\n{rendered}"
+    );
 
     let tmp_md = unique_tmp("no-horizon-md");
     std::fs::create_dir_all(&tmp_md).unwrap();

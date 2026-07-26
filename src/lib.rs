@@ -925,10 +925,18 @@ type = \"feature\"\n";
 
     #[test]
     fn render_shows_dash_when_horizon_absent() {
+        // Alone, an absent horizon drops the column entirely…
         let mut f = feat("f-x", Status::Todo, "unused", "v0.2.x");
         f.frontmatter.horizon = None;
-        let out = render(&[f], &cfg());
-        assert!(out.contains("| [f-x](#f-x) | feature | — | — | arch | — | ☐ | v0.2.x |"));
+        let out = render(&[f.clone()], &cfg());
+        assert!(!out.contains("Horizon"));
+        // …but once any feature carries one, the gap renders as `—`.
+        let g = feat("f-y", Status::Todo, "next", "v0.2.x");
+        let out = render(&[f, g], &cfg());
+        assert!(
+            out.contains("| [f-x](#f-x) | feature | arch | — | ☐ | v0.2.x |"),
+            "got:\n{out}"
+        );
     }
 
     #[test]
