@@ -21,7 +21,7 @@ fn unique_tmp(label: &str) -> PathBuf {
 fn minimal_fixture_round_trip() {
     let root = fixture("minimal");
     let config = roadmark::load_config(&root).unwrap();
-    let mut features = roadmark::load_features(&root).unwrap();
+    let mut features = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut features, &config);
     let out = roadmark::render(&features, &config, &[]);
     insta::assert_snapshot!(out);
@@ -38,7 +38,7 @@ fn minimal_fixture_split_by_bucket() {
     let root = fixture("minimal");
     let mut config = roadmark::load_config(&root).unwrap();
     config.split_by_bucket = true;
-    let mut features = roadmark::load_features(&root).unwrap();
+    let mut features = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut features, &config);
     insta::assert_snapshot!(roadmark::render(&features, &config, &[]));
 }
@@ -61,7 +61,7 @@ fn output_flag_writes_the_rendered_document() {
 
     let root = fixture("minimal");
     let config = roadmark::load_config(&root).unwrap();
-    let mut features = roadmark::load_features(&root).unwrap();
+    let mut features = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut features, &config);
     assert_eq!(
         std::fs::read_to_string(&target).unwrap(),
@@ -126,8 +126,8 @@ fn failing_generate_does_not_destroy_the_existing_output_file() {
 fn determinism_round_trip() {
     let root = fixture("minimal");
     let config = roadmark::load_config(&root).unwrap();
-    let mut a = roadmark::load_features(&root).unwrap();
-    let mut b = roadmark::load_features(&root).unwrap();
+    let mut a = roadmark::load_features(&root, &config).unwrap();
+    let mut b = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut a, &config);
     roadmark::sort_features(&mut b, &config);
     assert_eq!(

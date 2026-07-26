@@ -130,9 +130,19 @@ Subcommand modules follow the same split:
   and `Summary` are the only unconditional ones (`CatalogColumn.always`).
   A new column defaults to conditional; making it `always: true` puts a
   `—` on every row of a project that doesn't use it, which is the thing
-  the rule exists to prevent. `#[serde(deny_unknown_fields)]` on
-  `Frontmatter` is load-bearing here, not decoration: with the axes
-  optional, a typo'd key would otherwise parse as an absent field.
+  the rule exists to prevent.
+- **The typo guard is `check_declared_fields`, not serde.** With every
+  axis optional, a key nobody declares would parse as an absent field —
+  so it must be refused. That was `#[serde(deny_unknown_fields)]` on
+  `Frontmatter` until project-declared fields (#22) required
+  `serde(flatten)`, which serde cannot combine with it. The check now
+  reads the config, which is why `load_features` takes one. Don't try to
+  put the attribute back, and don't let a code path reach `render` that
+  hasn't run the check — `validate` reports it per file rather than
+  calling the bailing version, so both entry points stay covered.
+  `Config` and `FieldSpec` *do* still carry `deny_unknown_fields`, and
+  should: every config key is optional, and TOML binds a top-level key
+  written below a `[fields.x]` table to that table.
 - **Under `split_by_bucket`, a column is dropped only when the heading
   carries the *whole* value.** The bucket column vanishes inside its own
   section, but only for a feature with exactly one target that

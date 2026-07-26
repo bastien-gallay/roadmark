@@ -10,6 +10,25 @@ and this project adheres to
 
 ### Added
 
+- **Project-declared fields.** A `[fields.X]` naming something roadmark
+  doesn't model now declares a field of the project's own — the schema
+  had no home for a tracking issue, an owner, a spec URL, so they lived
+  in the free-text body where nothing could validate them, tabulate
+  them, or project them anywhere. `kind` (`integer` / `string` / `url` /
+  `issue-ref`) checks shape where `values` can't enumerate a set,
+  `column` renders the field in the catalog, and `link` turns each value
+  into a link by substituting it for `{}` — which keeps the forge out of
+  the binary. `issue-ref` accepts `42` and `"#42"` alike and stays a
+  plain number as far as roadmark is concerned; only a projection needs
+  to know it means an issue. Declared columns land before `Summary` and
+  follow ADR-0002 like every axis: no feature carries the field, no
+  column. There is deliberately no `pattern` — roadmark carries no regex
+  dependency and a half-regex would be worse than none.
+  ([#22](https://github.com/bastien-gallay/roadmark/issues/22))
+- **`required_when` accepts a list.** `{ horizon = ["now", "next"] }`
+  fires when the field holds either; multiple keys are still ANDed. The
+  scalar form is unchanged and means the same as a one-element list.
+
 - **`sections`: hand-written narrative in the generated document.**
   `generate` emitted title → banner → catalog → details, with nowhere to
   put prose that belongs to no single feature — dated triage notes, "why
@@ -142,6 +161,20 @@ and this project adheres to
   two-argument form was rejected deliberately: it would silently drop
   the narrative of any project whose config declares it, which is the
   exact failure the feature exists to prevent.
+- **Unknown frontmatter keys are rejected one layer out (breaking:
+  library API).** `Frontmatter` can no longer carry
+  `deny_unknown_fields`: project-declared fields need `serde(flatten)`,
+  and serde cannot combine the two. The guarantee is unchanged in
+  substance — an undeclared key still fails `generate` and is still a
+  `validate` schema error — and the message now names the declaration
+  that would make the key legal instead of just refusing it. The cost is
+  in the API: `Frontmatter` gains a public `extra` map, `load_features`
+  takes the config (`load_features(root, &config)`) because the check
+  needs it, and `Frontmatter`/`Feature` lose their `Eq` impl since
+  `toml::Value` has none. A `[fields.X]` outside the built-in set is no
+  longer a config error — it is a declaration — so that check is gone;
+  what replaced it validates the declaration's own coherence (`values`
+  and `kind` together, neither of them, `link` without `column`).
 - **Unknown keys in `config.toml` are rejected (breaking).**
   `Config` and `[fields.*]` now carry `deny_unknown_fields`, as
   `Frontmatter` has since 0.6.0. Every config key is optional, so a typo
