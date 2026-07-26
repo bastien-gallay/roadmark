@@ -4,9 +4,11 @@ type = "feature"
 class = "enabler"
 effort = "M"
 area = ["core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
-target = ["Later"]
+target = ["v0.6"]
+shipped = { version = "v0.6.0", date = "2026-07-26" }
+shipped_order = 10
 +++
 
 A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes it actually holds.
@@ -25,5 +27,5 @@ typo'd key (`horizen = "next"`) a parse error rather than a silent "no
 horizon".
 
 Rationale and the rejected config-driven alternative:
-[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Kept `next` (not
-`shipped`) until a release actually ships it.
+[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in
+v0.6.0, whose three breaking changes this is.
