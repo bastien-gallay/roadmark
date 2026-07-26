@@ -17,6 +17,7 @@
 | [F-ci-publish](#f-ci-publish) | chore | — | M | release | shipped | ✅ | v0.5 | Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a v<semver> tag ships the crate with no … |
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 | [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | now | 🚧 | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
+| [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | now | 🚧 | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory .roadmap/ → .roadmark/ for brand coherence. Deferred and low priority while usage stays … |
@@ -119,6 +120,16 @@ v0.6.0, whose three breaking changes this is.
 The documented recipe `roadmark generate > ROADMAP.md` has the shell truncate the destination to zero bytes *before* the binary runs — any error emptied the roadmap and wrote nothing in its place. [F-schema-v2](#f-schema-v2)'s `deny_unknown_fields` (0.6.0) is what made it fire in practice: a tree carrying one stray frontmatter key generated fine yesterday and destroys its roadmap today, at the exact moment the user is already confused by an error they have never seen.
 
 stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existing pipelines are unaffected.
+
+### <a id="f-validate-refs"></a>F-validate-refs
+
+`validate` checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning tier for findings that should be named without failing the run.
+
+Nothing asked the question a reader hits first — *does this link go anywhere?* Anchor drift could not catch it: drift compares a fresh regen against the committed roadmap, and the regen embeds the same dead link, so the two agree and the check stays silent. [F-rename](#f-rename) keeps references honest when ids change through it; the uncovered paths are the ones that don't — a deleted file, an id mistyped by hand, a reference written before its target exists.
+
+Two forms, two tiers. A markdown link to a feature anchor is a hard error, because it ships a broken anchor in the published roadmap. A bare mention in prose is a warning, because prose legitimately names things that are not features. Matching goes through the same anchor rule the renderer uses and the same token boundary [F-rename](#f-rename) uses, so an id never matches inside a longer one. Code spans are masked before the link scan, so a body may quote the syntax without tripping its own check.
+
+The warning tier also carries the empty-body check: the body *is* the summary field, so a feature without one renders a catalog row that links somewhere and says nothing.
 
 ### <a id="f-validate-action"></a>F-validate-action
 
