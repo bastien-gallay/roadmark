@@ -43,6 +43,19 @@ GitHub release. Config lives in `dist-workspace.toml`; never edit
 `release.yml` by hand — bump `cargo-dist-version` there and rerun
 `dist init --yes` to regenerate it.
 
+**Tag last, and only on a commit that already carries the version.**
+The release cut is a PR like any other (branch protection requires one):
+bump `Cargo.toml`, retitle the changelog's `[Unreleased]`, flip the
+shipped features, regenerate `ROADMAP.md`, merge — *then* tag the merge
+commit. Tagging `main` before that PR lands points `v<x.y.z>` at a tree
+whose `Cargo.toml` still says the old version, and `dist plan` rejects
+it ("the version you gave doesn't match any of the packages") before
+any job publishes. Recovery is cheap only because it fails there:
+delete the tag on both sides, confirm the version is still absent from
+crates.io, re-tag the merge commit. A crates.io version cannot be
+deleted once published, only yanked — so the ordering is the safeguard,
+not the retry.
+
 Snapshot tests use `insta` (`tests/snapshots/`). After an intentional
 output change: `cargo insta review` (or `INSTA_UPDATE=always cargo test`),
 and commit the updated `.snap` files.
