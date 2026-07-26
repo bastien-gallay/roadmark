@@ -15,10 +15,10 @@
 | [F-rename](#f-rename) | feature | table-stakes | M | cli, core | shipped | ✅ | v0.4 | roadmark rename: rename a feature id, move its file, and rewrite cross-references so anchors stay consistent. |
 | [F-crates-io](#f-crates-io) | chore | — | S | release, docs | shipped | ✅ | v0.5 | Published roadmark to crates.io — it now installs with cargo install roadmark — and added the crates.io version badge … |
 | [F-ci-publish](#f-ci-publish) | chore | — | M | release | shipped | ✅ | v0.5 | Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a v<semver> tag ships the crate with no … |
+| [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory .roadmap/ → .roadmark/ for brand coherence. Deferred and low priority while usage stays … |
-| [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | next | ✅ | Later | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 
 ## Details
 
@@ -88,19 +88,9 @@ Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a `v<se
 
 Wired as a dist custom publish job (`publish-jobs = ["./publish-crates-io"]`): the dist-generated `release.yml` calls `.github/workflows/publish-crates-io.yml` after a successful `host`, dist grants it `id-token: write`, and `rust-lang/crates-io-auth-action` mints the ephemeral token for `cargo publish`. First proven by the v0.5.1 release, which published to crates.io through this path. Requires a one-time Trusted Publisher config on crates.io (repo `bastien-gallay/roadmark`, workflow `release.yml` — the OIDC JWT names the entry-point workflow, not the reusable `publish-crates-io.yml` it calls).
 
-### <a id="f-validate-action"></a>F-validate-action
-
-Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a `roadmap: valid` badge — the badge is the distribution loop: every repo that shows it advertises the tool.
-
-### <a id="f-init"></a>F-init
-
-`roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project.
-
-### <a id="f-roadmark-dir-rename"></a>F-roadmark-dir-rename
-
-Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays personal. If ever done, ship it non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is arguably clearer and stays consistent with the `ROADMAP.md` output, so this may never be worth the churn.
-
 ### <a id="f-partial-schema"></a>F-partial-schema
+
+Shipped in v0.6.0 (2026-07-26).
 
 A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes it actually holds.
 
@@ -118,5 +108,17 @@ typo'd key (`horizen = "next"`) a parse error rather than a silent "no
 horizon".
 
 Rationale and the rejected config-driven alternative:
-[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Kept `next` (not
-`shipped`) until a release actually ships it.
+[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in
+v0.6.0, whose three breaking changes this is.
+
+### <a id="f-validate-action"></a>F-validate-action
+
+Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a `roadmap: valid` badge — the badge is the distribution loop: every repo that shows it advertises the tool.
+
+### <a id="f-init"></a>F-init
+
+`roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project.
+
+### <a id="f-roadmark-dir-rename"></a>F-roadmark-dir-rename
+
+Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays personal. If ever done, ship it non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is arguably clearer and stays consistent with the `ROADMAP.md` output, so this may never be worth the churn.
