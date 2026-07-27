@@ -41,7 +41,7 @@ fn feature_src(id: &str, extra_frontmatter: &str, body: &str) -> String {
 fn render_minimal() -> String {
     let root = fixture("minimal");
     let config = roadmark::load_config(&root).unwrap();
-    let mut features = roadmark::load_features(&root).unwrap();
+    let mut features = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut features, &config);
     roadmark::render(&features, &config, &[])
 }
@@ -142,7 +142,7 @@ fn feature_without_horizon_validates_clean() {
     .unwrap();
 
     let config = roadmark::load_config(&root).unwrap();
-    let mut fs = roadmark::load_features(&root).unwrap();
+    let mut fs = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut fs, &config);
     let rendered = roadmark::render(&fs, &config, &[]);
     // No feature carries a horizon → the column is omitted outright.
@@ -223,6 +223,187 @@ fn horizon_in_use_without_a_declaration_is_a_hard_error() {
     );
 }
 
+/// #22 end to end: a project-declared field is required by a list-valued
+/// condition, shape-checked, and rendered as a linked column — while a
+/// key nothing declares is still refused.
+#[test]
+fn a_project_declared_field_is_required_shape_checked_and_rendered() {
+    let root = unique_tmp("declared-field");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        format!(
+            "{CONFIG_WITH_HORIZON}\
+             [fields.tracked]\nkind = \"issue-ref\"\n\
+             required_when = {{ horizon = [\"next\"] }}\n\
+             column = \"Tracked\"\nlink = \"https://example.test/i/{{}}\"\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src("F-live", "horizon = \"next\"\ntracked = 42\n", "Live.\n"),
+    )
+    .unwrap();
+
+    let config = roadmark::load_config(&root).unwrap();
+    let mut fs_ = roadmark::load_features(&root, &config).unwrap();
+    roadmark::sort_features(&mut fs_, &config);
+    let rendered = roadmark::render(&fs_, &config, &[]);
+    assert!(
+        rendered.contains("[42](https://example.test/i/42)"),
+        "got:\n{rendered}"
+    );
+
+    let tmp_md = unique_tmp("declared-field-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, &rendered).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(report.is_clean(), "got:\n{}", report.to_text());
+
+    // Drop the value: the list-valued condition fires.
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src("F-live", "horizon = \"next\"\n", "Live.\n"),
+    )
+    .unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("`tracked` is required when horizon")),
+        "got:\n{}",
+        report.to_text()
+    );
+
+    // Wrong shape for the declared kind.
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src(
+            "F-live",
+            "horizon = \"next\"\ntracked = \"PROJ-12\"\n",
+            "Live.\n",
+        ),
+    )
+    .unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("is not an issue reference")),
+        "got:\n{}",
+        report.to_text()
+    );
+
+    // A table has no cell rendering — it would be stringified back to its
+    // own TOML source and dropped into the catalog verbatim.
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src(
+            "F-live",
+            "horizon = \"next\"\ntracked = { number = 42 }\n",
+            "Live.\n",
+        ),
+    )
+    .unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("`tracked` is a table")),
+        "got:\n{}",
+        report.to_text()
+    );
+
+    // A key nothing declares: the guarantee `deny_unknown_fields` gave.
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src("F-live", "horizon = \"next\"\ntrackd = 42\n", "Live.\n"),
+    )
+    .unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("unknown frontmatter key `trackd`")),
+        "got:\n{}",
+        report.to_text()
+    );
+    // …and `generate` refuses it outright, not just `validate`.
+    assert!(roadmark::load_features(&root, &config).is_err());
+}
+
+/// Narrative sections are where cross-feature prose lives, so a link to a
+/// feature is *likelier* there than in a feature body. `rename` must
+/// rewrite them and `validate` must scan them — otherwise a rename leaves
+/// a dead link that anchor drift can't see (it compares `<a id>` tags,
+/// and the regen embeds the same broken link the file has).
+#[test]
+fn a_feature_link_inside_a_section_is_renamed_and_checked() {
+    let root = unique_tmp("section-refs");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        format!("sections = [{{ file = \"notes.md\", slot = \"after-catalog\" }}]\n{CONFIG_WITHOUT_HORIZON}"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-old](#f-old).\n",
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-old.md"),
+        feature_src("F-old", "", "Old.\n"),
+    )
+    .unwrap();
+
+    // A link to a feature that doesn't exist is a hard error wherever it
+    // is written — including in prose.
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-ghost](#f-ghost).\n",
+    )
+    .unwrap();
+    let tmp_md = unique_tmp("section-refs-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, "").unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .dangling_links
+            .iter()
+            .any(|r| r.reference.contains("f-ghost") && r.path.ends_with("notes.md")),
+        "got:\n{}",
+        report.to_text()
+    );
+
+    // …and `rename` carries the section along, so a live link stays live.
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-old](#f-old).\n",
+    )
+    .unwrap();
+    let outcome = roadmark::rename::rename(&root, "f-old", "f-new", false).unwrap();
+    assert_eq!(outcome.rewritten.len(), 2, "{:?}", outcome.rewritten);
+    let notes = std::fs::read_to_string(root.join("notes.md")).unwrap();
+    assert_eq!(notes, "Crowned this slice: [F-new](#f-new).\n");
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report.dangling_links.is_empty(),
+        "got:\n{}",
+        report.to_text()
+    );
+}
+
 /// #21: a declared narrative section that isn't there is a hard error,
 /// because `generate` would refuse outright — a clean `validate` would be
 /// promising a document the very next command can't produce.
@@ -297,7 +478,7 @@ fn an_anchor_inside_a_section_is_not_drift() {
 
     let config = roadmark::load_config(&root).unwrap();
     let sections = roadmark::load_sections(&root, &config).unwrap();
-    let mut fs_ = roadmark::load_features(&root).unwrap();
+    let mut fs_ = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut fs_, &config);
     let tmp_md = unique_tmp("section-anchor-md");
     std::fs::create_dir_all(&tmp_md).unwrap();
@@ -329,7 +510,7 @@ fn empty_body_and_dead_prose_reference_warn_without_failing() {
     .unwrap();
 
     let config = roadmark::load_config(&root).unwrap();
-    let mut fs = roadmark::load_features(&root).unwrap();
+    let mut fs = roadmark::load_features(&root, &config).unwrap();
     roadmark::sort_features(&mut fs, &config);
     let tmp_md = unique_tmp("warnings-md");
     std::fs::create_dir_all(&tmp_md).unwrap();

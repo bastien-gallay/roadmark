@@ -16,7 +16,7 @@
 use crate::add::classify_slug;
 use crate::{
     anchor_id, axis_in_use, feature_md_paths, load_config, parse_feature, render, sort_features,
-    Config, Feature, Frontmatter, LoadedSection,
+    Condition, Config, Feature, FieldKind, Frontmatter, LoadedSection,
 };
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -238,13 +238,17 @@ pub fn validate(root: &Path, roadmap_md: &Path, root_explicit: bool) -> Result<V
             }),
         }
     }
-    check_dangling_refs(&parsed, &mut report);
+    let section_files = check_sections(root, &config, &mut report);
+    let section_bodies: Vec<(PathBuf, String)> = section_files
+        .iter()
+        .map(|(path, s)| (path.clone(), s.body.clone()))
+        .collect();
+    check_dangling_refs(&parsed, &section_bodies, &mut report);
     let features: Vec<Feature> = parsed.into_iter().map(|(_, f)| f).collect();
 
     // Config checks need the features: a `[fields.X]` section is required
     // by what the tree actually holds, not unconditionally.
     check_config_fields(&root.join("config.toml"), &config, &features, &mut report);
-    let sections = check_sections(root, &config, &mut report);
 
     let mut id_counts: HashMap<String, usize> = HashMap::new();
     for f in &features {
@@ -287,6 +291,7 @@ pub fn validate(root: &Path, roadmap_md: &Path, root_explicit: bool) -> Result<V
     sort_features(&mut sorted, &config);
     // The regen must carry the same sections the on-disk file does, or a
     // hand-written block holding an `<a id>` would read as drift.
+    let sections: Vec<LoadedSection> = section_files.into_iter().map(|(_, s)| s).collect();
     let regen = render(&sorted, &config, &sections);
     let regen_anchors = extract_anchors(&regen);
 
@@ -319,19 +324,25 @@ fn check_feature_fields(
         });
     };
     for (name, spec) in &config.fields {
-        // `None` = a field the generator doesn't model. The config-level
-        // typo is surfaced once by `check_config_fields`; skip it here.
-        let Some(values) = fm.field_values(name) else {
+        // A reserved name can't be constrained here and `check_config_fields`
+        // already rejects the declaration. Skipping keeps that one config
+        // error from also manufacturing a bogus "`status` is required" on
+        // every feature file in the tree.
+        if Frontmatter::RESERVED_FIELD_NAMES.contains(&name.as_str()) {
             continue;
-        };
+        }
+        // Every remaining name is declared, so "the feature doesn't carry
+        // it" is an *empty* value list, not a reason to skip: a declared
+        // field the feature omits is precisely what `required_when` is about.
+        let values = fm.field_values(name).unwrap_or_default();
         if let Some(required_when) = &spec.required_when {
             // ALL declared conditions must hold (AND) for the field to be
             // required — a condition matches when the referenced field
-            // currently carries the expected value. Honours every key, not
-            // just `type`.
-            let all_match = required_when.iter().all(|(cond_field, cond_val)| {
+            // currently carries one of the expected values. Honours every
+            // key, not just `type`.
+            let all_match = required_when.iter().all(|(cond_field, cond)| {
                 fm.field_values(cond_field)
-                    .is_some_and(|vals| vals.iter().any(|v| v == cond_val))
+                    .is_some_and(|vals| cond.matches(&vals))
             });
             if all_match && values.is_empty() {
                 // `required_when = {}` is the unconditional form (an empty
@@ -352,14 +363,50 @@ fn check_feature_fields(
                 values.len()
             ));
         }
+        // A closed value set and a shape check are alternatives: `values`
+        // when the project can enumerate them, `kind` when it can't (a
+        // tracking issue number has no value set to declare).
         for v in &values {
-            if !spec.values.iter().any(|allowed| allowed == v) {
-                err(format!(
-                    "unknown `{name}` value {v:?} (allowed: {})",
-                    spec.values.join(", ")
-                ));
+            match spec.kind {
+                Some(kind) => {
+                    if let Err(why) = check_kind(kind, v) {
+                        err(format!("`{name}` value {v:?} {why}"));
+                    }
+                },
+                None => {
+                    if !spec.values.iter().any(|allowed| allowed == v) {
+                        err(format!(
+                            "unknown `{name}` value {v:?} (allowed: {})",
+                            spec.values.join(", ")
+                        ));
+                    }
+                },
             }
         }
+    }
+    for (name, value) in &fm.extra {
+        // A table has no sensible cell rendering: `toml_values` would
+        // stringify it back to its own source text and drop `{ x = 1 }`
+        // verbatim into the catalog. Reject the shape rather than let a
+        // `kind = "string"` check wave it through as "non-empty".
+        let tabular = matches!(value, toml::Value::Table(_))
+            || matches!(value, toml::Value::Array(items)
+                if items.iter().any(|i| matches!(i, toml::Value::Table(_))));
+        if tabular && config.fields.contains_key(name) {
+            err(format!(
+                "`{name}` is a table — declared fields take scalars, or a list of them"
+            ));
+        }
+    }
+    for name in crate::undeclared_fields(fm, config) {
+        // The guarantee `deny_unknown_fields` used to give `Frontmatter`,
+        // now that project-declared fields force `serde(flatten)`. Every
+        // axis is optional, so an undeclared key would otherwise read as
+        // an absent field and quietly drop out of the document.
+        err(format!(
+            "unknown frontmatter key `{name}` — declare it under \
+             `[fields.{name}]` in config.toml, or fix the spelling"
+        ));
     }
     if fm.area.is_empty() {
         err("`area` must list at least one value".to_string());
@@ -368,10 +415,39 @@ fn check_feature_fields(
 
 /// Sorted, human-readable rendering of a `required_when` condition set, so
 /// error messages are deterministic regardless of `HashMap` iteration order.
-fn describe_condition(cond: &HashMap<String, String>) -> String {
-    let mut parts: Vec<String> = cond.iter().map(|(k, v)| format!("{k} = \"{v}\"")).collect();
-    parts.sort();
-    parts.join(", ")
+fn describe_condition(cond: &BTreeMap<String, Condition>) -> String {
+    cond.iter()
+        .map(|(k, v)| format!("{k} = {}", v.describe()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Does one value satisfy a declared [`FieldKind`]? `Err` carries the
+/// tail of the message ("is not an integer"), so the caller supplies the
+/// field name and the value once.
+///
+/// Shallow on purpose: roadmark carries no regex dependency, and these
+/// four shapes are what a roadmap actually needs. Anything finer is the
+/// project's own CI.
+fn check_kind(kind: FieldKind, value: &str) -> Result<(), &'static str> {
+    match kind {
+        FieldKind::Integer => value
+            .parse::<i64>()
+            .map(|_| ())
+            .map_err(|_| "is not an integer"),
+        FieldKind::String => (!value.trim().is_empty()).then_some(()).ok_or("is empty"),
+        FieldKind::Url => (value.starts_with("https://") || value.starts_with("http://"))
+            .then_some(())
+            .ok_or("is not an http(s) URL"),
+        // `#42` and `42` are the same issue; a roadmap writes both.
+        FieldKind::IssueRef => value
+            .trim_start_matches('#')
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(|_| ())
+            .ok_or("is not an issue reference (a positive integer, optionally `#`-prefixed)"),
+    }
 }
 
 /// The body is the summary field, just not declared as one: `render` takes
@@ -442,13 +518,25 @@ enum RefForm {
 /// indistinguishable from a real one and gets reported — the shape *is* the
 /// only signal available, and shipping `#f-…` section anchors alongside a
 /// roadmap is itself ambiguous.
-fn check_dangling_refs(parsed: &[(PathBuf, Feature)], report: &mut ValidationReport) {
+/// `sections` carries the hand-written narrative blocks. They are scanned
+/// on the same terms as feature bodies because they are where cross-feature
+/// prose lives — which makes them the likeliest home for a link to a
+/// feature, and the one place `rename` used to miss.
+fn check_dangling_refs(
+    parsed: &[(PathBuf, Feature)],
+    sections: &[(PathBuf, String)],
+    report: &mut ValidationReport,
+) {
     let declared: BTreeSet<String> = parsed
         .iter()
         .map(|(_, f)| anchor_id(&f.frontmatter.id))
         .collect();
-    for (path, feature) in parsed {
-        for (anchor, (form, as_written)) in scan_feature_refs(&feature.body) {
+    let bodies = parsed
+        .iter()
+        .map(|(path, f)| (path, f.body.as_str()))
+        .chain(sections.iter().map(|(path, body)| (path, body.as_str())));
+    for (path, body) in bodies {
+        for (anchor, (form, as_written)) in scan_feature_refs(body) {
             if declared.contains(&anchor) {
                 continue;
             }
@@ -624,7 +712,7 @@ fn check_sections(
     root: &Path,
     config: &Config,
     report: &mut ValidationReport,
-) -> Vec<LoadedSection> {
+) -> Vec<(PathBuf, LoadedSection)> {
     let config_path = root.join("config.toml");
     let mut loaded = Vec::new();
     for section in &config.sections {
@@ -639,10 +727,13 @@ fn check_sections(
             },
         };
         match std::fs::read_to_string(&path) {
-            Ok(body) => loaded.push(LoadedSection {
-                slot: section.slot,
-                body,
-            }),
+            Ok(body) => loaded.push((
+                path.clone(),
+                LoadedSection {
+                    slot: section.slot,
+                    body,
+                },
+            )),
             Err(e) => report.schema_errors.push(SchemaError {
                 path: config_path.clone(),
                 message: format!(
@@ -673,15 +764,64 @@ fn check_config_fields(
     features: &[Feature],
     report: &mut ValidationReport,
 ) {
-    for name in config.fields.keys() {
-        if !Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
+    // A `[fields.X]` naming something outside `FIELD_NAMES` used to be a
+    // typo; since #22 it is a project-declared field, so the typo check
+    // reverses direction — `check_declared_fields` catches the key nobody
+    // declared, which is where the mistake is actually made. What stays
+    // checkable here is the declaration's own coherence.
+    for (name, spec) in &config.fields {
+        let mut err = |message: String| {
             report.schema_errors.push(SchemaError {
                 path: config_path.to_path_buf(),
-                message: format!(
-                    "unknown `[fields.{name}]` — not a recognized schema field (known: {})",
-                    Frontmatter::FIELD_NAMES.join(", ")
-                ),
+                message,
             });
+        };
+        if Frontmatter::RESERVED_FIELD_NAMES.contains(&name.as_str()) {
+            // Not a project field and not a declarable axis: these parse
+            // into named struct fields, so they never reach `extra` and
+            // never answer `field_values`. Declaring one constrains
+            // nothing while making every feature look like it were
+            // missing the field.
+            err(format!(
+                "`[fields.{name}]` is not declarable — `{name}` is part of the core \
+                 schema, not a taxonomy axis (declarable: {})",
+                Frontmatter::FIELD_NAMES.join(", ")
+            ));
+            continue;
+        }
+        if spec.column.is_some() && Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
+            err(format!(
+                "`[fields.{name}]` sets `column`, but `{name}` is a built-in axis and \
+                 already has one — the declaration would emit the same value twice"
+            ));
+        }
+        if let Some(required_when) = &spec.required_when {
+            for (cond_field, cond) in required_when {
+                if matches!(cond, Condition::Any(values) if values.is_empty()) {
+                    err(format!(
+                        "`[fields.{name}]` has an empty `required_when.{cond_field}` list, \
+                         which no value can match — the field would never be required"
+                    ));
+                }
+            }
+        }
+        if !spec.values.is_empty() && spec.kind.is_some() {
+            err(format!(
+                "`[fields.{name}]` sets both `values` and `kind` — a closed value set \
+                 and a shape check are alternatives, not layers"
+            ));
+        }
+        if spec.values.is_empty() && spec.kind.is_none() {
+            err(format!(
+                "`[fields.{name}]` declares neither `values` nor `kind`, so nothing \
+                 about the field is checked"
+            ));
+        }
+        if spec.link.is_some() && spec.column.is_none() {
+            err(format!(
+                "`[fields.{name}]` sets `link` without `column` — the link would \
+                 never be rendered"
+            ));
         }
     }
     for name in Frontmatter::OMISSIBLE_FIELD_NAMES {
@@ -814,6 +954,7 @@ mod tests {
             severity: None,
             shipped: crate::Shipped::default(),
             shipped_order: None,
+            extra: BTreeMap::new(),
         }
     }
 
@@ -836,10 +977,11 @@ mod tests {
             FieldSpec {
                 values: vec!["differentiator".into(), "enabler".into()],
                 multi: false,
-                required_when: Some(std::collections::HashMap::from([(
+                required_when: Some(BTreeMap::from([(
                     "type".to_string(),
-                    "feature".to_string(),
+                    Condition::One("feature".to_string()),
                 )])),
+                ..FieldSpec::default()
             },
         );
         fields.insert(
@@ -848,6 +990,7 @@ mod tests {
                 values: vec!["rules".into(), "docs".into()],
                 multi: true,
                 required_when: None,
+                ..FieldSpec::default()
             },
         );
         cfg(fields)
@@ -908,10 +1051,11 @@ mod tests {
             FieldSpec {
                 values: vec!["S".into(), "M".into(), "L".into()],
                 multi: false,
-                required_when: Some(std::collections::HashMap::from([(
+                required_when: Some(BTreeMap::from([(
                     "horizon".to_string(),
-                    "now".to_string(),
+                    Condition::One("now".to_string()),
                 )])),
+                ..FieldSpec::default()
             },
         );
         let config = cfg(fields);
@@ -934,7 +1078,7 @@ mod tests {
         assert!(r2.schema_errors.is_empty(), "got: {:?}", r2.schema_errors);
     }
 
-    fn cfg_with_horizon(required_when: Option<HashMap<String, String>>) -> Config {
+    fn cfg_with_horizon(required_when: Option<BTreeMap<String, Condition>>) -> Config {
         use crate::FieldSpec;
         let mut fields = std::collections::BTreeMap::new();
         fields.insert(
@@ -943,6 +1087,7 @@ mod tests {
                 values: vec!["now".into(), "next".into(), "later".into()],
                 multi: false,
                 required_when,
+                ..FieldSpec::default()
             },
         );
         cfg(fields)
@@ -981,9 +1126,9 @@ mod tests {
     /// keeps its old behavior: absence is an error when the condition holds.
     #[test]
     fn field_check_required_when_still_applies_to_horizon() {
-        let config = cfg_with_horizon(Some(HashMap::from([(
+        let config = cfg_with_horizon(Some(BTreeMap::from([(
             "type".to_string(),
-            "feature".to_string(),
+            Condition::One("feature".to_string()),
         )])));
         let mut feature = fm("feature", None, vec!["rules"], "now");
         feature.horizon = None;
@@ -1010,7 +1155,7 @@ mod tests {
     /// not dangle a trailing "when".
     #[test]
     fn field_check_empty_required_when_means_always() {
-        let config = cfg_with_horizon(Some(HashMap::new()));
+        let config = cfg_with_horizon(Some(BTreeMap::new()));
         let mut chore = fm("chore", None, vec!["rules"], "now");
         chore.horizon = None;
         let mut r = ValidationReport::default();
@@ -1037,6 +1182,7 @@ mod tests {
                 values: vec!["rules".into(), "docs".into()],
                 multi: false,
                 required_when: None,
+                ..FieldSpec::default()
             },
         );
         let config = cfg(fields);
@@ -1052,37 +1198,98 @@ mod tests {
         );
     }
 
+    /// Since #22 a `[fields.X]` outside the built-in set is a *project
+    /// declaration*, not a typo — so the old "unknown field name" check is
+    /// gone, and what stays checkable is the declaration's own coherence.
     #[test]
-    fn config_check_flags_unknown_field_name() {
-        use crate::FieldSpec;
+    fn config_check_flags_an_incoherent_declaration() {
+        use crate::{FieldKind, FieldSpec};
         let mut fields = std::collections::BTreeMap::new();
+        // Declared name outside FIELD_NAMES: legal now.
         fields.insert(
-            "bogus".to_string(),
+            "tracked".to_string(),
             FieldSpec {
-                values: vec!["x".into()],
-                multi: false,
-                required_when: None,
+                kind: Some(FieldKind::IssueRef),
+                column: Some("Tracked".into()),
+                ..FieldSpec::default()
             },
         );
+        // Both a closed value set and a shape check: alternatives, not layers.
+        fields.insert(
+            "owner".to_string(),
+            FieldSpec {
+                values: vec!["a".into()],
+                kind: Some(FieldKind::String),
+                ..FieldSpec::default()
+            },
+        );
+        // Neither: nothing about the field would be checked.
+        fields.insert("mystery".to_string(), FieldSpec::default());
+        // A link with no column would never be rendered.
+        fields.insert(
+            "spec".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::Url),
+                link: Some("https://x/{}".into()),
+                ..FieldSpec::default()
+            },
+        );
+        // A core-schema key: neither a declarable axis nor a project field.
+        fields.insert("status".to_string(), FieldSpec::default());
+        // A `column` on a built-in axis, which already has one.
         fields.insert(
             "horizon".to_string(),
             FieldSpec {
-                values: vec!["next".into()],
-                multi: false,
-                required_when: None,
+                values: vec!["now".into()],
+                column: Some("When".into()),
+                ..FieldSpec::default()
+            },
+        );
+        // An empty condition list can never match, so the field would
+        // never be required — the same "checks nothing" class as above.
+        fields.insert(
+            "reviewer".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::String),
+                required_when: Some(std::collections::BTreeMap::from([(
+                    "type".to_string(),
+                    Condition::Any(vec![]),
+                )])),
+                ..FieldSpec::default()
             },
         );
         let config = cfg(fields);
         let mut r = ValidationReport::default();
-        // No features → no axis is in use, so the only finding is the typo.
         check_config_fields(Path::new("config.toml"), &config, &[], &mut r);
-        assert_eq!(r.schema_errors.len(), 1, "got: {:?}", r.schema_errors);
+        let msgs: Vec<&str> = r.schema_errors.iter().map(|e| e.message.as_str()).collect();
+        assert_eq!(msgs.len(), 6, "got: {msgs:?}");
         assert!(
-            r.schema_errors[0]
-                .message
-                .contains("unknown `[fields.bogus]`"),
-            "got: {:?}",
-            r.schema_errors
+            msgs.iter()
+                .any(|m| m.contains("`[fields.status]` is not declarable")),
+            "got: {msgs:?}"
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("`horizon` is a built-in axis")),
+            "got: {msgs:?}"
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("empty `required_when.type` list")),
+            "got: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("`values` and `kind`")),
+            "got: {msgs:?}"
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("neither `values` nor `kind`")),
+            "got: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("`link` without `column`")),
+            "got: {msgs:?}"
         );
     }
 
@@ -1107,6 +1314,7 @@ mod tests {
                 values: vec!["feature".into()],
                 multi: false,
                 required_when: None,
+                ..FieldSpec::default()
             },
         );
         let config = cfg(fields);
@@ -1136,6 +1344,7 @@ mod tests {
                     values: vec!["feature".into(), "rules".into()],
                     multi: true,
                     required_when: None,
+                    ..FieldSpec::default()
                 },
             );
         }
@@ -1165,6 +1374,7 @@ mod tests {
                     values: vec!["feature".into(), "rules".into(), "now".into()],
                     multi: true,
                     required_when: None,
+                    ..FieldSpec::default()
                 },
             );
         }
@@ -1308,7 +1518,7 @@ mod tests {
             ));
         }
         let mut r = ValidationReport::default();
-        check_dangling_refs(&parsed, &mut r);
+        check_dangling_refs(&parsed, &[], &mut r);
         r
     }
 

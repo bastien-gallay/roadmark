@@ -64,6 +64,27 @@ pub fn rename(
         files.push((path, src));
     }
 
+    // Narrative sections are where cross-feature prose lives, so they are
+    // exactly where a link to a feature is written — rewrite them too, or
+    // a rename leaves a dead link behind. Kept in a separate list: the
+    // collision scan below must consider *features* only, and a section
+    // is prose, not parseable frontmatter.
+    //
+    // An unreadable or out-of-root section is skipped rather than fatal.
+    // `validate` owns reporting it, and refusing to rename because some
+    // unrelated prose file is missing would be a strange place to stop.
+    let mut section_files: Vec<(PathBuf, String)> = Vec::new();
+    if let Ok(config) = crate::load_config(root) {
+        for section in &config.sections {
+            let Ok(path) = crate::section_path(root, &section.file) else {
+                continue;
+            };
+            if let Ok(src) = std::fs::read_to_string(&path) {
+                section_files.push((path, src));
+            }
+        }
+    }
+
     // Take the old id from the file itself, not from the filename — the
     // slug ↔ id convention holds for `add`-created files but rename must
     // not corrupt a file whose id diverged.
@@ -118,7 +139,7 @@ pub fn rename(
     let mut rewritten = Vec::new();
     let mut renamed_out = None;
     let mut other_writes = Vec::new();
-    for (path, src) in &files {
+    for (path, src) in files.iter().chain(section_files.iter()) {
         let out = rewrite_refs(src, &old_id, &new_id, from, to);
         if out != *src {
             if *path == old_path {

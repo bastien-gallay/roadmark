@@ -147,9 +147,11 @@ target = ["v0.2"]       # first entry drives the sort bucket
 One-paragraph summary — the first non-empty line lands in the Summary column.
 ```
 
-Unknown frontmatter keys are rejected at parse time: with `horizon`
-optional, a typo (`horizen = "next"`) would otherwise silently read as
-"no horizon" and drop the feature to the end of its bucket.
+Frontmatter keys roadmark neither models nor sees declared in your config
+are rejected: with `horizon` optional, a typo (`horizen = "next"`) would
+otherwise silently read as "no horizon" and drop the feature to the end
+of its bucket. Keys you *do* declare are yours — see
+[your own fields](#your-own-fields).
 
 A fix carries a `severity` instead of a `class`:
 
@@ -208,6 +210,51 @@ values = ["now", "next", "later", "parked", "shipped"]   # order = sort rank
 values = ["critical", "major", "minor"]
 required_when = { type = "fix" }
 ```
+
+`required_when` takes a single value or a list — `{ horizon = ["now",
+"next"] }` fires when `horizon` is either. Multiple keys are ANDed.
+
+#### Your own fields
+
+A `[fields.X]` naming something roadmark doesn't model declares a
+**project field**. Use `kind` instead of `values` when the values can't
+be enumerated — a tracking issue number has no value set:
+
+```toml
+[fields.tracked]
+kind = "issue-ref"                              # integer | string | url | issue-ref
+required_when = { horizon = ["now", "next"] }   # a live feature must be tracked
+column = "Tracked"                              # render it in the catalog
+link = "https://github.com/owner/repo/issues/{}"   # …as a link
+```
+
+```toml
+# frontmatter
+tracked = 42     # or "#42" — both link to issue 42
+```
+
+`kind` is deliberately shallow, and there is no `pattern`: roadmark
+carries no regex dependency, and a half-regex would be worse than none.
+Anything finer belongs in your own CI. `issue-ref` stays a plain number
+as far as roadmark is concerned — only a projection needs to know it
+means an issue.
+
+Declared columns land just before `Summary` and follow the same rule as
+every axis: no feature carries the field, no column. Values are
+percent-encoded into the `link` template, so a free-text value like
+`Jane Doe (ops)` still produces a working link.
+
+Two names you can't declare. `id`, `status`, `target`, `shipped` and
+`shipped_order` are core schema, not taxonomy axes — declaring one
+constrains nothing (`status` in particular is deliberately hardcoded,
+see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md)). And `column`
+on a built-in axis is refused: it already has one, so the declaration
+would print the same value twice. Both are schema errors.
+
+**Unknown keys are still rejected.** A frontmatter key that no
+`[fields.*]` declares fails `generate` and is a `validate` schema error,
+naming the declaration that would make it legal. With every axis
+optional, a typo would otherwise read as an absent field.
 
 ### 2. Generate: the roadmap is a compiled artifact
 
@@ -316,6 +363,11 @@ Two properties make this safe to rely on:
   error, not a silent hole. `generate` would fail outright, so a passing
   `validate` would be promising a document the next command refuses to
   produce.
+- **Held to the same cross-reference rules as a feature body.** A
+  `[F-foo](#f-foo)` link in a section is checked by `validate` and
+  rewritten by `rename`. Sections are where cross-feature prose lives, so
+  they're the *likeliest* home for a link to a feature — and a dead one
+  there is invisible to anchor drift, which only compares `<a id>` tags.
 
 Paths are relative to the `.roadmap/` root and must stay inside it: an
 absolute path or a `..` component is a schema error. `.roadmap/` is the

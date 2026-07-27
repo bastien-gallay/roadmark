@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 /// Body stays an unparsed `String` — a markdown parser would round-trip
 /// poorly (loses author intent on edge cases), and the renderer only
 /// needs the first paragraph for the catalog summary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Feature {
     pub frontmatter: Frontmatter,
     pub body: String,
@@ -29,8 +29,7 @@ pub struct Feature {
 /// `area`/`horizon`/`severity` are **not** hardcoded here — they are
 /// declared per-project in `config.toml` `[fields.*]` and enforced by
 /// `validate`, so this generator stays reusable across projects.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Frontmatter {
     pub id: String,
     /// `feature | fix | chore`. Only features carry a `class`; only
@@ -63,14 +62,45 @@ pub struct Frontmatter {
     /// Optional; only required once the catalog includes shipped entries.
     #[serde(default)]
     pub shipped_order: Option<u32>,
+    /// Every key this generator does not model, kept verbatim so a
+    /// project can declare its own fields in `config.toml` (`tracked`,
+    /// `owner`, …) without the binary knowing their names.
+    ///
+    /// This is why [`Frontmatter`] no longer carries
+    /// `deny_unknown_fields`: serde cannot combine it with `flatten`.
+    /// The guarantee it provided did not go away — it moved to
+    /// [`check_declared_fields`], which rejects any key here that no
+    /// `[fields.*]` declares. Enforcement is now one layer out, with a
+    /// message that can say *which* declaration is missing.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, toml::Value>,
 }
 
 impl Frontmatter {
-    /// The schema fields this generator models. A config `[fields.*]` name
-    /// outside this set is a typo that would otherwise silently disable
-    /// validation, so `validate` rejects it.
+    /// The taxonomy axes this generator models — the ones a `[fields.*]`
+    /// section can constrain with `values` / `multi` / `required_when`.
+    ///
+    /// Since #22 a `[fields.*]` name *outside* this set is not a typo but
+    /// a project-declared field. The typo guard moved to
+    /// [`check_declared_fields`], which rejects a frontmatter key nobody
+    /// declares — see [`Self::RESERVED_FIELD_NAMES`] for the names that
+    /// are neither.
     pub const FIELD_NAMES: &'static [&'static str] =
         &["type", "class", "effort", "area", "horizon", "severity"];
+
+    /// Modelled frontmatter keys that are **not** declarable axes.
+    ///
+    /// They are structural: `id` and `target` drive anchors and bucketing,
+    /// `status` is the one hardcoded taxonomy
+    /// ([ADR-0003](../docs/adr/0003-status-stays-hardcoded.md)), and
+    /// `shipped`/`shipped_order` are shipping metadata. None of them
+    /// answers [`Self::field_values`], and because they parse into named
+    /// struct fields none reaches [`Frontmatter::extra`] either — so a
+    /// `[fields.status]` would constrain nothing while making every
+    /// feature look like it were missing a `status`. Declaring one is a
+    /// config error, not a project field.
+    pub const RESERVED_FIELD_NAMES: &'static [&'static str] =
+        &["id", "status", "target", "shipped", "shipped_order"];
 
     /// The axes a feature may leave out **entirely** — the ones ADR-0002 is
     /// about. `type` and `area` are absent from this list because they are
@@ -88,10 +118,15 @@ impl Frontmatter {
         &["class", "effort", "horizon", "severity"];
 
     /// Values a named schema field currently holds, for config-driven
-    /// validation. `None` = this generator does not model a field of that
-    /// name (config references something unknown → the caller skips it).
-    /// `Some(vec)` = the present values (empty when an optional field is
-    /// unset), so the caller can enforce `required_when` and membership.
+    /// validation. `None` = neither a modelled field nor one this feature
+    /// carries in [`Self::extra`], so there is nothing to check.
+    /// `Some(vec)` = the present values (empty when a modelled optional
+    /// field is unset), so the caller can enforce `required_when` and
+    /// membership.
+    ///
+    /// Project-declared fields answer here too, which is what lets
+    /// `render` and `validate` treat them exactly like the built-in axes
+    /// rather than growing a second code path each.
     pub fn field_values(&self, name: &str) -> Option<Vec<String>> {
         let one = |s: &str| vec![s.to_string()];
         let opt = |o: &Option<String>| o.iter().cloned().collect::<Vec<_>>();
@@ -102,8 +137,35 @@ impl Frontmatter {
             "area" => Some(self.area.clone()),
             "horizon" => Some(opt(&self.horizon)),
             "severity" => Some(opt(&self.severity)),
-            _ => None,
+            // A project-declared field the feature omits is simply absent
+            // from `extra`, and this function has no `Config` to tell
+            // "declared but unset" from "not a field at all" — so both
+            // answer `None`. Callers iterating `config.fields` already
+            // know the name is declared and read this as an empty value
+            // list (`unwrap_or_default`), which is what lets
+            // `required_when` fire on an omitted field. Don't read
+            // `is_some()` as "declared"; it means "carried".
+            _ => self.extra.get(name).map(toml_values),
         }
+    }
+
+    /// Every key this feature carries that the generator does not model —
+    /// the candidates for a project declaration, and for a typo.
+    pub fn extra_names(&self) -> impl Iterator<Item = &str> {
+        self.extra.keys().map(String::as_str)
+    }
+}
+
+/// A declared field's values as strings, whatever TOML shape it took.
+///
+/// Numbers stringify rather than being rejected: `tracked = 42` and
+/// `tracked = "42"` should mean the same thing to a roadmap, and the
+/// [`FieldKind`] check is where the shape is actually enforced.
+fn toml_values(v: &toml::Value) -> Vec<String> {
+    match v {
+        toml::Value::Array(items) => items.iter().flat_map(toml_values).collect(),
+        toml::Value::String(s) => vec![s.clone()],
+        other => vec![other.to_string()],
     }
 }
 
@@ -291,18 +353,90 @@ const DEFAULT_UNBUCKETED_LABEL: &str = "Unscheduled";
 
 /// Declares the allowed values (and shape) of one schema field, so the
 /// project — not this binary — owns its taxonomy.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldSpec {
-    /// The closed set of accepted values.
+    /// The closed set of accepted values. Empty when the field is
+    /// checked by [`Self::kind`] instead — a tracking issue number has
+    /// no enumerable value set.
+    #[serde(default)]
     pub values: Vec<String>,
+    /// Shape check for a field whose values can't be enumerated.
+    /// Mutually exclusive with a non-empty [`Self::values`].
+    #[serde(default)]
+    pub kind: Option<FieldKind>,
     /// Whether the frontmatter field is an array (e.g. `area`).
     #[serde(default)]
     pub multi: bool,
-    /// Conditional presence: e.g. `{ type = "feature" }` makes the field
-    /// required only when the feature's `type` equals `"feature"`.
+    /// Conditional presence: `{ type = "feature" }` makes the field
+    /// required only when `type` is `feature`; `{ horizon = ["now",
+    /// "next"] }` when `horizon` is either. Multiple keys are ANDed.
     #[serde(default)]
-    pub required_when: Option<HashMap<String, String>>,
+    pub required_when: Option<BTreeMap<String, Condition>>,
+    /// Emit this field as a catalog column under the given header.
+    /// Absent means the field is validated but not tabulated.
+    #[serde(default)]
+    pub column: Option<String>,
+    /// Turn each value into a link, substituting it for `{}`. E.g.
+    /// `"https://github.com/owner/repo/issues/{}"`. Keeps the forge out
+    /// of the binary: roadmark only knows the template.
+    #[serde(default)]
+    pub link: Option<String>,
+}
+
+/// What a declared field's values must *look* like, when they can't be
+/// enumerated as a closed set.
+///
+/// Deliberately shallow — no `pattern`, because roadmark carries no regex
+/// dependency (see AGENTS.md) and a half-regex would be worse than none.
+/// These four cover the cases a roadmap actually needs; anything finer
+/// belongs in the project's own CI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldKind {
+    /// Any integer.
+    Integer,
+    /// Any non-empty string.
+    String,
+    /// Must start with `http://` or `https://`.
+    Url,
+    /// A forge issue: a positive integer, with or without a leading `#`.
+    /// Stays a dumb number as far as roadmark is concerned — only an
+    /// adapter needs to know it means an issue.
+    IssueRef,
+}
+
+/// One `required_when` condition: a single expected value, or any of a
+/// list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum Condition {
+    One(String),
+    Any(Vec<String>),
+}
+
+impl Condition {
+    /// Does the referenced field currently hold a value this condition
+    /// accepts? A list is an OR; a bare string is the one-element case.
+    pub fn matches(&self, values: &[String]) -> bool {
+        match self {
+            Self::One(want) => values.iter().any(|v| v == want),
+            Self::Any(wants) => values.iter().any(|v| wants.contains(v)),
+        }
+    }
+
+    /// Human-readable form for error messages.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::One(want) => format!("{want:?}"),
+            Self::Any(wants) => wants
+                .iter()
+                .map(|w| format!("{w:?}"))
+                .collect::<Vec<_>>()
+                .join(" or "),
+        }
+    }
 }
 
 fn default_title() -> String {
@@ -547,6 +681,37 @@ pub(crate) fn anchor_id(id: &str) -> String {
     id.to_lowercase()
 }
 
+/// Percent-encode a value for substitution into a `link` template.
+///
+/// Keeps the RFC 3986 unreserved set plus the few sub-delimiters a forge
+/// path routinely carries (`/`, `-`, `_`, `.`, `~`); everything else — a
+/// space, a parenthesis, a `|` — becomes `%XX`. Without this, a value
+/// like `Jane Doe (ops)` produces a markdown link that terminates at the
+/// first space and leaves an unbalanced paren behind.
+///
+/// Hand-rolled rather than pulled in: it's a byte loop over a table, and
+/// a dependency for that would be its own kind of cost.
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char)
+            },
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Escape a value used as markdown *link text*: an unescaped `[` or `]`
+/// would close the text early and leave the rest as literal characters.
+fn escape_link_text(s: &str) -> String {
+    s.replace('\\', r"\\")
+        .replace('[', r"\[")
+        .replace(']', r"\]")
+}
+
 /// Escape free text destined for a `|`-delimited markdown table cell:
 /// a literal `|` would open a spurious column and a newline would break
 /// the row, so escape the former and fold the latter to a space.
@@ -588,7 +753,7 @@ fn axis_cell(f: &Feature, axis: &str) -> Option<String> {
 fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
     let declared: HashSet<&str> = config.versions.iter().map(String::as_str).collect();
     let split = config.split_by_bucket;
-    vec![
+    let mut columns = vec![
         CatalogColumn {
             header: "ID".into(),
             always: true,
@@ -667,7 +832,57 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
             always: true,
             value: Box::new(|f| Some(escape_cell(&summary(&f.body)))),
         },
-    ]
+    ];
+    // Project-declared columns land between the built-in axes and
+    // `Summary`: `Summary` is free text and always last, and a declared
+    // field is a fact about the feature like the axes before it.
+    // `BTreeMap` order, so the catalog doesn't reshuffle between runs.
+    let summary_col = columns.pop().expect("Summary column");
+    for (name, spec) in &config.fields {
+        let Some(header) = &spec.column else {
+            continue;
+        };
+        // A built-in axis already has its column above; emitting a second
+        // one would print the same value twice under two headers.
+        // `validate` reports the declaration; skipping here keeps a tree
+        // that ignored the report from rendering the duplicate.
+        if Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
+            continue;
+        }
+        let name = name.clone();
+        let link = spec.link.clone();
+        columns.push(CatalogColumn {
+            header: header.clone(),
+            always: false,
+            value: Box::new(move |f| {
+                let values = axis_values(&f.frontmatter, &name);
+                if values.is_empty() {
+                    return None;
+                }
+                let rendered: Vec<String> = values
+                    .iter()
+                    .map(|v| match &link {
+                        // The value goes in the link *text* as written, so
+                        // `#42` reads as `#42` and links to issue 42 — but
+                        // the URL gets a percent-encoded copy, or a value
+                        // like `Jane Doe (ops)` emits a link whose spaces
+                        // and unbalanced parens break it.
+                        Some(template) => {
+                            format!(
+                                "[{}]({})",
+                                escape_link_text(v),
+                                template.replace("{}", &percent_encode(v.trim_start_matches('#')))
+                            )
+                        },
+                        None => v.clone(),
+                    })
+                    .collect();
+                Some(escape_cell(&rendered.join(", ")))
+            }),
+        });
+    }
+    columns.push(summary_col);
+    columns
 }
 
 /// The feature's bucket, when its first `target` names a declared one.
@@ -889,7 +1104,7 @@ pub fn feature_md_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// Read all `.roadmap/features/*.md` files under `root`, parse each,
 /// and return them in load order (caller sorts).
-pub fn load_features(root: &Path) -> Result<Vec<Feature>> {
+pub fn load_features(root: &Path, config: &Config) -> Result<Vec<Feature>> {
     let dir = root.join("features");
     if !dir.is_dir() {
         bail!("expected directory: {}", dir.display());
@@ -899,6 +1114,8 @@ pub fn load_features(root: &Path) -> Result<Vec<Feature>> {
         let src = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
         let feature = parse_feature(&src).with_context(|| format!("parsing {}", path.display()))?;
+        check_declared_fields(&feature.frontmatter, config)
+            .with_context(|| format!("parsing {}", path.display()))?;
         out.push(feature);
     }
     Ok(out)
@@ -987,6 +1204,42 @@ fn stage(tmp: &Path, contents: &str, perms: Option<std::fs::Permissions>) -> std
     Ok(())
 }
 
+/// Frontmatter keys the generator doesn't model and the config doesn't
+/// declare, in sorted order.
+///
+/// This is the guarantee `deny_unknown_fields` gave [`Frontmatter`] until
+/// project-declared fields (#22) forced `serde(flatten)`, which serde
+/// cannot combine with it. The rule is unchanged in substance — every axis
+/// is optional, so a typo'd key would otherwise read as an absent field —
+/// and stronger in one respect: it can name the missing declaration
+/// instead of just refusing the key.
+pub fn undeclared_fields(fm: &Frontmatter, config: &Config) -> Vec<String> {
+    fm.extra_names()
+        .filter(|name| !config.fields.contains_key(*name))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Reject a feature carrying a key nothing declares.
+///
+/// Called by [`load_features`] so `generate` fails on a typo exactly as it
+/// did before #22. `validate` deliberately does *not* call this — it
+/// collects the same finding per file instead of bailing on the first.
+pub fn check_declared_fields(fm: &Frontmatter, config: &Config) -> Result<()> {
+    let unknown = undeclared_fields(fm, config);
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "unknown frontmatter key(s): {} — declare in config.toml, or fix the spelling",
+        unknown
+            .iter()
+            .map(|n| format!("`{n}` (add `[fields.{n}]`)"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// Resolve a declared section path against the `.roadmap/` root.
 ///
 /// Rejects anything that would leave the source tree — an absolute path,
@@ -1052,6 +1305,7 @@ mod tests {
                     .collect(),
                 multi: false,
                 required_when: None,
+                ..FieldSpec::default()
             },
         );
         Config {
@@ -1075,6 +1329,7 @@ mod tests {
                 severity: None,
                 shipped: Shipped::default(),
                 shipped_order: None,
+                extra: BTreeMap::new(),
             },
             body: "Summary line.".into(),
         }
@@ -1135,11 +1390,7 @@ target = [\"v0.2.x\"]\n\
         assert_eq!(f.frontmatter.horizon, None);
     }
 
-    /// With `horizon` optional, a typo'd key would otherwise silently read
-    /// as "no horizon" — `deny_unknown_fields` keeps it a parse error.
-    #[test]
-    fn parse_rejects_unknown_key() {
-        let src = "+++\n\
+    const TYPO_SRC: &str = "+++\n\
 id = \"F-foo\"\n\
 type = \"feature\"\n\
 area = [\"arch\"]\n\
@@ -1147,9 +1398,60 @@ horizen = \"next\"\n\
 status = \"todo\"\n\
 target = [\"v0.2.x\"]\n\
 +++\n\nThe summary.\n";
-        let err = parse_feature(src).unwrap_err();
+
+    /// With `horizon` optional, a typo'd key would otherwise silently read
+    /// as "no horizon". `deny_unknown_fields` used to keep that a parse
+    /// error; project-declared fields (#22) force `serde(flatten)`, which
+    /// serde can't combine with it, so the key now *parses* into `extra`
+    /// and the rejection moves one layer out.
+    #[test]
+    fn parse_keeps_an_unmodelled_key_instead_of_dropping_it() {
+        let f = parse_feature(TYPO_SRC).unwrap();
+        assert_eq!(f.frontmatter.horizon, None);
+        // Kept, not discarded — which is what lets the next layer name it.
+        assert!(f.frontmatter.extra.contains_key("horizen"));
+    }
+
+    /// The guarantee itself, at its new home: a key no `[fields.*]`
+    /// declares is still refused, and the message names the declaration
+    /// that would make it legal.
+    #[test]
+    fn an_undeclared_key_is_rejected_against_the_config() {
+        let f = parse_feature(TYPO_SRC).unwrap();
+        let err = check_declared_fields(&f.frontmatter, &cfg()).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("horizen"), "got: {msg}");
+        assert!(msg.contains("[fields.horizen]"), "got: {msg}");
+    }
+
+    /// …and a key the config *does* declare is accepted, which is the
+    /// whole point of the change.
+    #[test]
+    fn a_declared_key_is_accepted() {
+        let src = "+++\n\
+id = \"F-foo\"\n\
+type = \"feature\"\n\
+area = [\"arch\"]\n\
+tracked = 42\n\
+status = \"todo\"\n\
+target = [\"v0.2.x\"]\n\
++++\n\nThe summary.\n";
+        let f = parse_feature(src).unwrap();
+        let mut config = cfg();
+        config.fields.insert(
+            "tracked".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::IssueRef),
+                ..FieldSpec::default()
+            },
+        );
+        assert!(check_declared_fields(&f.frontmatter, &config).is_ok());
+        // An integer answers as a string, so every consumer treats a
+        // declared field exactly like a built-in axis.
+        assert_eq!(
+            f.frontmatter.field_values("tracked"),
+            Some(vec!["42".to_string()])
+        );
     }
 
     #[test]
@@ -1238,7 +1540,7 @@ type = \"feature\"\n";
         assert!(!config.fields["class"].multi);
         assert_eq!(
             config.fields["class"].required_when.as_ref().unwrap()["type"],
-            "feature"
+            Condition::One("feature".to_string())
         );
     }
 
@@ -1706,6 +2008,190 @@ type = \"feature\"\n";
         assert!(section_path(root, "../escape.md").is_err());
         assert!(section_path(root, "notes/../../escape.md").is_err());
         assert!(section_path(root, "/etc/passwd").is_err());
+    }
+
+    /// `cfg()` plus a project-declared `tracked` field, rendered as a
+    /// linked catalog column — the shape #22 asked for.
+    fn cfg_tracked() -> Config {
+        let mut config = cfg();
+        config.fields.insert(
+            "tracked".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::IssueRef),
+                column: Some("Tracked".into()),
+                link: Some("https://example.test/issues/{}".into()),
+                required_when: Some(BTreeMap::from([(
+                    "horizon".to_string(),
+                    Condition::Any(vec!["now".into(), "next".into()]),
+                )])),
+                ..FieldSpec::default()
+            },
+        );
+        config
+    }
+
+    fn feat_tracked(id: &str, horizon: &str, tracked: Option<toml::Value>) -> Feature {
+        let mut f = feat(id, Status::Todo, horizon, "v0.2.x");
+        if let Some(v) = tracked {
+            f.frontmatter.extra.insert("tracked".to_string(), v);
+        }
+        f
+    }
+
+    #[test]
+    fn a_declared_field_becomes_a_linked_catalog_column() {
+        let out = render(
+            &[feat_tracked("f-a", "now", Some(toml::Value::Integer(42)))],
+            &cfg_tracked(),
+            &[],
+        );
+        assert!(out.contains("| Tracked |"), "got {out}");
+        assert!(
+            out.contains("[42](https://example.test/issues/42)"),
+            "got {out}"
+        );
+    }
+
+    /// A `#`-prefixed reference links to the bare number but keeps the `#`
+    /// as its link text — `#42` is how a roadmap writes it.
+    #[test]
+    fn a_hash_prefixed_issue_ref_links_to_the_bare_number() {
+        let out = render(
+            &[feat_tracked(
+                "f-a",
+                "now",
+                Some(toml::Value::String("#42".into())),
+            )],
+            &cfg_tracked(),
+            &[],
+        );
+        assert!(
+            out.contains("[#42](https://example.test/issues/42)"),
+            "got {out}"
+        );
+    }
+
+    /// Declared columns follow ADR-0002 like every other axis: no feature
+    /// carries the field → no column.
+    #[test]
+    fn a_declared_column_is_omitted_when_no_feature_carries_it() {
+        let out = render(&[feat_tracked("f-a", "now", None)], &cfg_tracked(), &[]);
+        assert!(!out.contains("Tracked"), "got {out}");
+    }
+
+    /// …and `Summary` stays last, because it is free text and a declared
+    /// field is a fact about the feature like the axes before it.
+    #[test]
+    fn declared_columns_sit_before_summary() {
+        let out = render(
+            &[feat_tracked("f-a", "now", Some(toml::Value::Integer(7)))],
+            &cfg_tracked(),
+            &[],
+        );
+        let header = out
+            .lines()
+            .find(|l| l.starts_with("| ID |"))
+            .expect("header row");
+        assert!(header.ends_with("| Tracked | Summary |"), "got {header:?}");
+    }
+
+    /// A built-in axis already has a column; a `column` declaration on one
+    /// must not emit the same value twice under two headers.
+    #[test]
+    fn a_column_declared_on_a_builtin_axis_does_not_duplicate_it() {
+        let mut config = cfg();
+        config.fields.insert(
+            "horizon".to_string(),
+            FieldSpec {
+                values: vec!["now".into()],
+                column: Some("When".into()),
+                ..FieldSpec::default()
+            },
+        );
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config, &[]);
+        assert!(out.contains("| Horizon |"), "got {out}");
+        assert!(!out.contains("| When |"), "got {out}");
+        // The value appears once, under the built-in header — not twice.
+        assert_eq!(out.matches(" now ").count(), 1, "got {out}");
+    }
+
+    /// A free-text value would otherwise emit a link whose spaces end the
+    /// URL early and whose parens close it in the wrong place.
+    #[test]
+    fn a_linked_value_is_percent_encoded_in_the_url() {
+        let mut config = cfg();
+        config.fields.insert(
+            "owner".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::String),
+                column: Some("Owner".into()),
+                link: Some("https://example.test/u/{}".into()),
+                ..FieldSpec::default()
+            },
+        );
+        let mut f = feat("f-a", Status::Todo, "now", "v0.2.x");
+        f.frontmatter.extra.insert(
+            "owner".to_string(),
+            toml::Value::String("Jane Doe (ops)".into()),
+        );
+        let out = render(&[f], &config, &[]);
+        assert!(
+            out.contains("[Jane Doe (ops)](https://example.test/u/Jane%20Doe%20%28ops%29)"),
+            "got {out}"
+        );
+    }
+
+    #[test]
+    fn percent_encode_keeps_path_shape_and_escapes_the_rest() {
+        assert_eq!(percent_encode("42"), "42");
+        assert_eq!(percent_encode("a/b-c_d.e~f"), "a/b-c_d.e~f");
+        assert_eq!(percent_encode("a b"), "a%20b");
+        assert_eq!(percent_encode("(x)"), "%28x%29");
+        assert_eq!(percent_encode("a|b"), "a%7Cb");
+        // Multi-byte input encodes per byte, as a URL must.
+        assert_eq!(percent_encode("é"), "%C3%A9");
+    }
+
+    #[test]
+    fn link_text_escapes_brackets_that_would_close_it_early() {
+        assert_eq!(escape_link_text("a[b]c"), r"a\[b\]c");
+        assert_eq!(escape_link_text("plain"), "plain");
+    }
+
+    #[test]
+    fn condition_matches_a_single_value_or_any_of_a_list() {
+        let one = Condition::One("feature".into());
+        assert!(one.matches(&["feature".to_string()]));
+        assert!(!one.matches(&["fix".to_string()]));
+
+        let any = Condition::Any(vec!["now".into(), "next".into()]);
+        assert!(any.matches(&["next".to_string()]));
+        assert!(!any.matches(&["later".to_string()]));
+        // Multi-valued fields match if *any* value satisfies the condition.
+        assert!(any.matches(&["later".to_string(), "now".to_string()]));
+    }
+
+    #[test]
+    fn condition_describes_itself_for_error_messages() {
+        assert_eq!(Condition::One("fix".into()).describe(), "\"fix\"");
+        assert_eq!(
+            Condition::Any(vec!["now".into(), "next".into()]).describe(),
+            "\"now\" or \"next\""
+        );
+    }
+
+    /// A single string and a one-element list are the same condition, so a
+    /// config can move between the two forms without changing meaning.
+    #[test]
+    fn required_when_accepts_both_scalar_and_list_forms() {
+        #[derive(Deserialize)]
+        struct Probe {
+            required_when: BTreeMap<String, Condition>,
+        }
+        let scalar: Probe = toml::from_str("required_when = { type = \"fix\" }").unwrap();
+        let list: Probe = toml::from_str("required_when = { type = [\"fix\"] }").unwrap();
+        assert!(scalar.required_when["type"].matches(&["fix".to_string()]));
+        assert!(list.required_when["type"].matches(&["fix".to_string()]));
     }
 
     #[test]

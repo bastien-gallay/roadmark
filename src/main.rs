@@ -127,7 +127,7 @@ fn generate(root: &std::path::Path, output: Option<&std::path::Path>) -> Result<
     // `validate` now tells about the same mistake (#31).
     let config = roadmark::load_config(root)
         .with_context(|| format!("reading roadmap source at {}", root.display()))?;
-    let mut features = roadmark::load_features(root)
+    let mut features = roadmark::load_features(root, &config)
         .with_context(|| format!("reading roadmap source at {}", root.display()))?;
     let sections = roadmark::load_sections(root, &config)
         .with_context(|| format!("reading roadmap source at {}", root.display()))?;

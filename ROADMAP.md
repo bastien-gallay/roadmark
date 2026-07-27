@@ -18,6 +18,7 @@
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 | [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | now | 🚧 | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
 | [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
+| [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | now | 🚧 | v0.7 | A [fields.X] naming something roadmark does not model declares a field of the project's own, validated for shape and … |
 | [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
 | [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | now | 🚧 | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
@@ -132,6 +133,16 @@ stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existin
 The section carries the bucket, so the bucket column drops out inside it — the same rule that drops a column no feature holds. It drops only where the heading carries the *whole* value, though: a multi-valued `target` keeps its cell because only the first entry picks the section, and an undeclared target keeps its because no heading can carry it. Empty buckets emit no heading, untargeted features collect in a trailing section, and `## Details` stays flat and stays one list because it is anchor-addressed and the catalog links into it.
 
 Opt-in, because it rewrites every line of the generated file. `bucket_label` and `unbucketed_label` come with it: `versions` is a bucket order, and the vocabulary belongs to the project rather than to this binary.
+
+### <a id="f-declared-fields"></a>F-declared-fields
+
+A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and optionally rendered as a linked catalog column.
+
+The schema had no home for a tracking issue, an owner, a spec URL. `shipped.pr` covers the shipping PR but not the issue a live feature is discussed in, so that fact lived in the free-text body — where nothing validated it, no column could show it, and no projection could read it. The GitHub Projects adapter needs it to locate a board item at all.
+
+`kind` checks shape where `values` cannot enumerate a set, and `link` turns each value into a link by substituting it for a placeholder, which keeps the forge out of the binary. There is deliberately no `pattern`: roadmark carries no regex dependency, and a half-regex would be worse than none.
+
+The cost is that `Frontmatter` can no longer use serde's `deny_unknown_fields` — it is incompatible with the flattened map arbitrary keys require. The guarantee did not go away, it moved one layer out to a check that reads the config, and it now names the declaration that would make a rejected key legal. It also flipped direction: an undeclared *frontmatter* key is the error, where an unrecognised `[fields.X]` used to be.
 
 ### <a id="f-narrative-sections"></a>F-narrative-sections
 
