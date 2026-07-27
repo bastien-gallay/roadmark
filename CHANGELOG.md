@@ -10,6 +10,32 @@ and this project adheres to
 
 ### Added
 
+- **`roadmark import <file>`: bootstrap `.roadmap/` from a hand-written
+  roadmap.** Every candidate adopter already has a `ROADMAP.md` — that is
+  the premise of the pitch — and the tool used to ask them to retype it.
+  `import` reads every markdown table carrying an ID or Summary column
+  and derives `id`, `status` (glyph or word), `horizon`, `area`,
+  `target` (from a column, or the enclosing `##` heading when the
+  document is bucketed) and the body. Headers are matched by name and a
+  short alias list; `--map field=Header` overrides, repeatably.
+  `--dry-run` reports and writes nothing.
+  What the table can't say splits along the line the schema draws:
+  `class` and `effort` are optional and are written commented out with
+  their value set inline, while `type`, `area` and `target` are
+  mandatory — a comment there produces a file that doesn't parse — so
+  they get a `<TODO>` placeholder. The result generates immediately and
+  `validate` names what is undecided rather than refusing the tree,
+  which is what makes the first run useful instead of a wall. Nothing is
+  overwritten: existing feature files are skipped and reported,
+  `config.toml` is written only when absent, and unattributable prose
+  goes to `import-leftovers.md` rather than being dropped.
+  ([#24](https://github.com/bastien-gallay/roadmark/issues/24))
+- **`validate` warns about `<TODO>` placeholders.** `add` and `import`
+  both scaffold them, and left alone they ship into the catalog as if
+  someone had decided them. A warning, not an error — scaffolding first
+  and filling in second is the normal shape of adoption. The quick start
+  now exits 0 with two warnings until the scaffold is filled in.
+
 - **Project-declared fields.** A `[fields.X]` naming something roadmark
   doesn't model now declares a field of the project's own — the schema
   had no home for a tracking issue, an owner, a spec URL, so they lived
@@ -34,7 +60,6 @@ and this project adheres to
 - **`required_when` accepts a list.** `{ horizon = ["now", "next"] }`
   fires when the field holds either; multiple keys are still ANDed. The
   scalar form is unchanged and means the same as a one-element list.
-
 - **`sections`: hand-written narrative in the generated document.**
   `generate` emitted title → banner → catalog → details, with nowhere to
   put prose that belongs to no single feature — dated triage notes, "why
@@ -54,7 +79,6 @@ and this project adheres to
   assembled partly from outside the source tree can't be reproduced from
   a checkout of it.
   ([#21](https://github.com/bastien-gallay/roadmark/issues/21))
-
 - **`split_by_bucket = true`: one catalog section per bucket.** Until
   now `versions` was only a sort key, so a roadmap organised *by* its
   buckets — MoSCoW, quarters, release trains — flattened to one long
@@ -102,8 +126,7 @@ and this project adheres to
   values cost nothing. `status` remains the
   one hardcoded taxonomy field rather than config-declared like the
   others — see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md) for
-  why. Closes #37.
-
+  why. ([#37](https://github.com/bastien-gallay/roadmark/issues/37))
 - **`validate` reports warnings as well as errors.** A second, soft tier:
   warnings are printed and counted but never change the exit code. They
   name work a human still owes the file rather than a tree that would

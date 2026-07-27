@@ -16,11 +16,12 @@
 | [F-crates-io](#f-crates-io) | chore | — | S | release, docs | shipped | ✅ | v0.5 | Published roadmark to crates.io — it now installs with cargo install roadmark — and added the crates.io version badge … |
 | [F-ci-publish](#f-ci-publish) | chore | — | M | release | shipped | ✅ | v0.5 | Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a v<semver> tag ships the crate with no … |
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
-| [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | now | 🚧 | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
-| [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
-| [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | now | 🚧 | v0.7 | A [fields.X] naming something roadmark does not model declares a field of the project's own, validated for shape and … |
-| [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
-| [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | now | 🚧 | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
+| [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | next | ✅ | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
+| [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | next | ✅ | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
+| [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | next | ✅ | v0.7 | A [fields.X] naming something roadmark does not model declares a field of the project's own, validated for shape and … |
+| [F-import](#f-import) | feature | differentiator | L | cli, core | next | ✅ | v0.7 | roadmark import <file> bootstraps a .roadmap/ tree from an existing hand-written roadmap, doing the mechanical half and … |
+| [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | next | ✅ | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
+| [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | next | ✅ | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory .roadmap/ → .roadmark/ for brand coherence. Deferred and low priority while usage stays … |
@@ -108,9 +109,11 @@ keeps one meaning: a gap in an axis this project *does* use.
 This unblocks adoption for projects whose priority already lives on a
 tracker board (GitHub Projects, Jira): they get the file layout without a
 second home for `horizon`, and without a catalog three columns of which are
-`—` on every row. `#[serde(deny_unknown_fields)]` on the frontmatter keeps a
-typo'd key (`horizen = "next"`) a parse error rather than a silent "no
-horizon".
+`—` on every row. A typo'd key (`horizen = "next"`) is rejected rather than
+read as a silent "no horizon" — by `#[serde(deny_unknown_fields)]` when
+this shipped, and since [F-declared-fields](#f-declared-fields) by
+`check_declared_fields`, which reads the config so it can name the
+declaration that would make the key legal.
 
 Rationale and the rejected config-driven alternative:
 [ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in
@@ -145,6 +148,16 @@ The schema had no home for a tracking issue, an owner, a spec URL. `shipped.pr` 
 `kind` checks shape where `values` cannot enumerate a set, and `link` turns each value into a link by substituting it for a placeholder, which keeps the forge out of the binary. There is deliberately no `pattern`: roadmark carries no regex dependency, and a half-regex would be worse than none.
 
 The cost is that `Frontmatter` can no longer use serde's `deny_unknown_fields` — it is incompatible with the flattened map arbitrary keys require. The guarantee did not go away, it moved one layer out to a check that reads the config, and it now names the declaration that would make a rejected key legal. It also flipped direction: an undeclared *frontmatter* key is the error, where an unrecognised `[fields.X]` used to be.
+
+### <a id="f-import"></a>F-import
+
+`roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half and naming the rest.
+
+This is the adoption cost. Every candidate adopter already has a `ROADMAP.md` — that is the premise of the pitch — and the tool asked them to retype it. Seventy rows of careful transcription is *nearly* mechanical, which is exactly the shape of task where hand-migration goes wrong silently. [F-init](#f-init) scaffolds an empty tree; it does nothing for a project that already has a roadmap, which is every project that would want this one.
+
+What a table can say is derived: id, status from the glyph or the word, horizon, area, the body from the summary cell, and the bucket from the enclosing heading when the document is organised that way. What it cannot say splits along the line the schema already draws — the omissible axes are written commented out with their value set inline, and the mandatory ones get a placeholder, because a comment there produces a file that does not parse.
+
+That asymmetry is the design. The imported tree generates on arrival, so the adopter sees their roadmap, and `validate` names every undecided field instead of refusing the tree over it. Nothing is overwritten and no prose is dropped: unattributable text lands in a leftovers file, and some of it is a good candidate for a [F-narrative-sections](#f-narrative-sections) entry.
 
 ### <a id="f-narrative-sections"></a>F-narrative-sections
 

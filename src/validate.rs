@@ -386,6 +386,33 @@ fn check_feature_fields(
             }
         }
     }
+    // `target` is not a declarable axis, so it isn't in `FIELD_NAMES` —
+    // but it is mandatory, so `import` has to write a placeholder there
+    // too, and an unreviewed one is exactly as misleading.
+    for value in &fm.target {
+        if value.contains("<TODO") {
+            report.warnings.push(Warning {
+                path: path.to_path_buf(),
+                message: format!("`target` is still the scaffolded placeholder {value:?}"),
+            });
+        }
+    }
+    for name in Frontmatter::FIELD_NAMES {
+        // `<TODO>` is a placeholder `add` and `import` write themselves. It
+        // parses, so the tree still generates — which is the point — but
+        // nobody decided it, and left alone it ships into the catalog as if
+        // someone had. A warning, not an error: scaffolding a tree and
+        // filling it in second is the normal shape of adoption, and the
+        // whole reason `import` exists.
+        for value in fm.field_values(name).unwrap_or_default() {
+            if value.contains("<TODO") {
+                report.warnings.push(Warning {
+                    path: path.to_path_buf(),
+                    message: format!("`{name}` is still the scaffolded placeholder {value:?}"),
+                });
+            }
+        }
+    }
     for (name, value) in &fm.extra {
         // A table has no sensible cell rendering: `toml_values` would
         // stringify it back to its own source text and drop `{ x = 1 }`
