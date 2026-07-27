@@ -4,9 +4,11 @@ type = "fix"
 severity = "major"
 effort = "S"
 area = ["cli", "core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 11
 +++
 
 `generate -o/--output <path>` writes the roadmap through a temp file and a rename, so a failed run leaves the committed `ROADMAP.md` untouched.

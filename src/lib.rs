@@ -240,7 +240,12 @@ pub struct Shipped {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Bucket order for sorting. Earliest cycle first.
+    /// Bucket order. Earliest cycle first.
+    ///
+    /// Two readers, which is why `validate` polices this list rather than
+    /// letting either pick a behaviour (#47): it ranks features
+    /// ([`sort_features`]), and under [`Config::split_by_bucket`] it also
+    /// orders and *names* the catalog's `##` sections.
     pub versions: Vec<String>,
     /// H1 heading for the generated `ROADMAP.md`. Defaults to `"Roadmap"`.
     #[serde(default = "default_title")]
@@ -963,10 +968,13 @@ fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usi
             .map(|(i, _)| i)
             .collect()
     };
-    // Deduplicated, first declaration wins. A repeated `versions` entry is
-    // a config mistake nothing rejects today, and emitting its section
-    // twice would put every one of its ID links — and so its `<a id>`
-    // anchor target — in the document twice.
+    // Deduplicated, first declaration wins — the same rank `index_of`
+    // gives it, which is what keeps a section's position and its rows'
+    // order from contradicting each other (#47). `validate` rejects the
+    // repeat outright; this stays because `render` must still emit
+    // *something* for a config that hasn't been through the gate, and
+    // emitting the section twice would put every one of its ID links —
+    // and so its `<a id>` anchor target — in the document twice.
     let mut seen = HashSet::new();
     let mut groups: Vec<(String, Vec<usize>)> = config
         .versions

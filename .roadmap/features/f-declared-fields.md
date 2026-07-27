@@ -4,9 +4,11 @@ type = "feature"
 class = "enabler"
 effort = "L"
 area = ["core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 15
 +++
 
 A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and optionally rendered as a linked catalog column.

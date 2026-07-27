@@ -202,3 +202,13 @@ Subcommand modules follow the same split:
   has run in parallel, compile *and* test the merged tree, and stack the
   branches — rebase the second on the first and retarget its base —
   rather than merging both into `main` and finding out there.
+- **Inserting a function between a doc block and its `fn` silently
+  reattaches the doc.** Rust binds `///` to whatever item follows, so a
+  new function dropped above an existing one steals its documentation
+  and leaves it undocumented. Nothing catches this: `fmt`, `clippy` and
+  the tests all pass, and the prose still reads plausibly because it is
+  about a neighbouring concern. It has happened twice in `validate.rs` —
+  #48 put `check_sections` above `check_config_fields` and took its
+  intro; #47 then put `check_versions` in the same gap and took the
+  rest. Add a function *after* the one it sits next to, or move the doc
+  with it, and re-read both docstrings afterwards.

@@ -4,9 +4,11 @@ type = "feature"
 class = "enabler"
 effort = "M"
 area = ["core", "cli"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 12
 +++
 
 `validate` checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning tier for findings that should be named without failing the run.

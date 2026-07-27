@@ -16,12 +16,12 @@
 | [F-crates-io](#f-crates-io) | chore | — | S | release, docs | shipped | ✅ | v0.5 | Published roadmark to crates.io — it now installs with cargo install roadmark — and added the crates.io version badge … |
 | [F-ci-publish](#f-ci-publish) | chore | — | M | release | shipped | ✅ | v0.5 | Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a v<semver> tag ships the crate with no … |
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
-| [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | next | ✅ | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
-| [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | next | ✅ | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
-| [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | next | ✅ | v0.7 | A [fields.X] naming something roadmark does not model declares a field of the project's own, validated for shape and … |
-| [F-import](#f-import) | feature | differentiator | L | cli, core | next | ✅ | v0.7 | roadmark import <file> bootstraps a .roadmap/ tree from an existing hand-written roadmap, doing the mechanical half and … |
-| [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | next | ✅ | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
-| [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | next | ✅ | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
+| [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | shipped | ✅ | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
+| [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | shipped | ✅ | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
+| [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | shipped | ✅ | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
+| [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | shipped | ✅ | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
+| [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | shipped | ✅ | v0.7 | A [fields.X] naming something roadmark does not model declares a field of the project's own, validated for shape and … |
+| [F-import](#f-import) | feature | differentiator | L | cli, core | shipped | ✅ | v0.7 | roadmark import <file> bootstraps a .roadmap/ tree from an existing hand-written roadmap, doing the mechanical half and … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory .roadmap/ → .roadmark/ for brand coherence. Deferred and low priority while usage stays … |
@@ -121,13 +121,29 @@ v0.6.0, whose three breaking changes this is.
 
 ### <a id="f-atomic-output"></a>F-atomic-output
 
+Shipped in v0.7.0 (2026-07-27).
+
 `generate -o/--output <path>` writes the roadmap through a temp file and a rename, so a failed run leaves the committed `ROADMAP.md` untouched.
 
 The documented recipe `roadmark generate > ROADMAP.md` has the shell truncate the destination to zero bytes *before* the binary runs — any error emptied the roadmap and wrote nothing in its place. [F-schema-v2](#f-schema-v2)'s `deny_unknown_fields` (0.6.0) is what made it fire in practice: a tree carrying one stray frontmatter key generated fine yesterday and destroys its roadmap today, at the exact moment the user is already confused by an error they have never seen.
 
 stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existing pipelines are unaffected.
 
+### <a id="f-validate-refs"></a>F-validate-refs
+
+Shipped in v0.7.0 (2026-07-27).
+
+`validate` checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning tier for findings that should be named without failing the run.
+
+Nothing asked the question a reader hits first — *does this link go anywhere?* Anchor drift could not catch it: drift compares a fresh regen against the committed roadmap, and the regen embeds the same dead link, so the two agree and the check stays silent. [F-rename](#f-rename) keeps references honest when ids change through it; the uncovered paths are the ones that don't — a deleted file, an id mistyped by hand, a reference written before its target exists.
+
+Two forms, two tiers. A markdown link to a feature anchor is a hard error, because it ships a broken anchor in the published roadmap. A bare mention in prose is a warning, because prose legitimately names things that are not features. Matching goes through the same anchor rule the renderer uses and the same token boundary [F-rename](#f-rename) uses, so an id never matches inside a longer one. Code spans are masked before the link scan, so a body may quote the syntax without tripping its own check.
+
+The warning tier also carries the empty-body check: the body *is* the summary field, so a feature without one renders a catalog row that links somewhere and says nothing.
+
 ### <a id="f-bucket-sections"></a>F-bucket-sections
+
+Shipped in v0.7.0 (2026-07-27).
 
 `split_by_bucket = true` emits one `##`-headed catalog per bucket instead of a single flat table, in the order `versions` declares.
 
@@ -139,7 +155,21 @@ Opt-in, because it rewrites every line of the generated file. `bucket_label` and
 
 Making `versions` name document positions rather than only sort ranks put weight on writing it correctly, so `validate` now checks it. A repeated entry can only hold one position. And splitting turns every project-supplied name — each bucket, plus `unbucketed_label` — into a `##` heading in a document that already writes `## Details` and the `## Feature catalog` a feature-less tree falls back to, so any two landing on the same text emit that heading twice. Both are schema errors rather than a behaviour the generator picks — and ranking is first-wins on both sides of the split, so sorting and grouping can no longer disagree about where a bucket sits.
 
+### <a id="f-narrative-sections"></a>F-narrative-sections
+
+Shipped in v0.7.0 (2026-07-27).
+
+`sections` declares hand-written markdown files and where they land in the generated document, injected verbatim.
+
+The generated document had four fixed parts and no room for prose that belongs to no single feature: dated triage notes, why *this* slice and not another, horizon commentary, which items are crowned and in what order. That prose is *about* the relationships between features, so no feature body holds it — and moving it to a separate file means neither file is the roadmap any more. Adopting roadmark used to mean keeping the inventory and dropping the reasoning, which is the half a reader trusts most.
+
+Three slots, named for the document's structural landmarks rather than for individual sections, so they keep meaning when [F-bucket-sections](#f-bucket-sections) turns the catalog into several tables. Verbatim means verbatim: no parsing, no reformatting, only the framing blank lines normalised so the output does not depend on how an editor saved the file.
+
+A declared file that is missing is a hard error — `generate` refuses outright, so a passing `validate` would promise a document the next command will not produce. Paths stay inside the roadmap root: a document assembled partly from outside the source of truth cannot be reproduced from a checkout of it.
+
 ### <a id="f-declared-fields"></a>F-declared-fields
+
+Shipped in v0.7.0 (2026-07-27).
 
 A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and optionally rendered as a linked catalog column.
 
@@ -151,6 +181,8 @@ The cost is that `Frontmatter` can no longer use serde's `deny_unknown_fields` �
 
 ### <a id="f-import"></a>F-import
 
+Shipped in v0.7.0 (2026-07-27).
+
 `roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half and naming the rest.
 
 This is the adoption cost. Every candidate adopter already has a `ROADMAP.md` — that is the premise of the pitch — and the tool asked them to retype it. Seventy rows of careful transcription is *nearly* mechanical, which is exactly the shape of task where hand-migration goes wrong silently. [F-init](#f-init) scaffolds an empty tree; it does nothing for a project that already has a roadmap, which is every project that would want this one.
@@ -158,26 +190,6 @@ This is the adoption cost. Every candidate adopter already has a `ROADMAP.md` �
 What a table can say is derived: id, status from the glyph or the word, horizon, area, the body from the summary cell, and the bucket from the enclosing heading when the document is organised that way. What it cannot say splits along the line the schema already draws — the omissible axes are written commented out with their value set inline, and the mandatory ones get a placeholder, because a comment there produces a file that does not parse.
 
 That asymmetry is the design. The imported tree generates on arrival, so the adopter sees their roadmap, and `validate` names every undecided field instead of refusing the tree over it. Nothing is overwritten and no prose is dropped: unattributable text lands in a leftovers file, and some of it is a good candidate for a [F-narrative-sections](#f-narrative-sections) entry.
-
-### <a id="f-narrative-sections"></a>F-narrative-sections
-
-`sections` declares hand-written markdown files and where they land in the generated document, injected verbatim.
-
-The generated document had four fixed parts and no room for prose that belongs to no single feature: dated triage notes, why *this* slice and not another, horizon commentary, which items are crowned and in what order. That prose is *about* the relationships between features, so no feature body holds it — and moving it to a separate file means neither file is the roadmap any more. Adopting roadmark used to mean keeping the inventory and dropping the reasoning, which is the half a reader trusts most.
-
-Three slots, named for the document's structural landmarks rather than for individual sections, so they keep meaning when [F-bucket-sections](#f-bucket-sections) turns the catalog into several tables. Verbatim means verbatim: no parsing, no reformatting, only the framing blank lines normalised so the output does not depend on how an editor saved the file.
-
-A declared file that is missing is a hard error — `generate` refuses outright, so a passing `validate` would promise a document the next command will not produce. Paths stay inside the roadmap root: a document assembled partly from outside the source of truth cannot be reproduced from a checkout of it.
-
-### <a id="f-validate-refs"></a>F-validate-refs
-
-`validate` checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning tier for findings that should be named without failing the run.
-
-Nothing asked the question a reader hits first — *does this link go anywhere?* Anchor drift could not catch it: drift compares a fresh regen against the committed roadmap, and the regen embeds the same dead link, so the two agree and the check stays silent. [F-rename](#f-rename) keeps references honest when ids change through it; the uncovered paths are the ones that don't — a deleted file, an id mistyped by hand, a reference written before its target exists.
-
-Two forms, two tiers. A markdown link to a feature anchor is a hard error, because it ships a broken anchor in the published roadmap. A bare mention in prose is a warning, because prose legitimately names things that are not features. Matching goes through the same anchor rule the renderer uses and the same token boundary [F-rename](#f-rename) uses, so an id never matches inside a longer one. Code spans are masked before the link scan, so a body may quote the syntax without tripping its own check.
-
-The warning tier also carries the empty-body check: the body *is* the summary field, so a feature without one renders a catalog row that links somewhere and says nothing.
 
 ### <a id="f-validate-action"></a>F-validate-action
 
