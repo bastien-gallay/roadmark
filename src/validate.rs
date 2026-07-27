@@ -19,7 +19,7 @@ use crate::{
     Condition, Config, Feature, FieldKind, Frontmatter, LoadedSection,
 };
 use anyhow::{bail, Context, Result};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default)]
@@ -248,7 +248,9 @@ pub fn validate(root: &Path, roadmap_md: &Path, root_explicit: bool) -> Result<V
 
     // Config checks need the features: a `[fields.X]` section is required
     // by what the tree actually holds, not unconditionally.
-    check_config_fields(&root.join("config.toml"), &config, &features, &mut report);
+    let config_path = root.join("config.toml");
+    check_config_fields(&config_path, &config, &features, &mut report);
+    check_versions(&config_path, &config, &mut report);
 
     let mut id_counts: HashMap<String, usize> = HashMap::new();
     for f in &features {
@@ -758,6 +760,76 @@ fn check_sections(
 /// declaration nothing checks the values, and for `horizon` the declared
 /// order is also the sort rank, so within-tier ordering degrades to id
 /// order for every feature carrying one.
+/// `versions` is a bucket *order*: a sort rank, and since #35 also the
+/// section order under `split_by_bucket`. Two ways to write one that no
+/// single behaviour can honour (#47).
+///
+/// **A repeated entry.** Sorting and grouping each have to pick which
+/// occurrence is the real rank; they now both pick the first
+/// ([`index_of`](crate::index_of), `catalog_groups`), so the output is at
+/// least coherent — but the config still describes a document order it
+/// doesn't have, and saying so is the whole promise of this command.
+///
+/// **A collision with a heading `render` writes itself.** Under
+/// `split_by_bucket` a bucket becomes `## {bucket}`, alongside
+/// `## Details` and the tail group's heading — a `versions` entry equal to
+/// any of them (or an `unbucketed_label` equal to a declared bucket) emits
+/// the same `##` twice: ambiguous navigation, and MD024 for anyone linting
+/// their generated `ROADMAP.md`.
+///
+/// The collision checks are gated on `split_by_bucket` because flat mode
+/// emits no bucket heading at all, so there is nothing to collide with and
+/// the error would be about a document the tool isn't producing.
+/// `Feature catalog` stays reserved even so: it is the fallback heading a
+/// split project with no features falls back to.
+fn check_versions(config_path: &Path, config: &Config, report: &mut ValidationReport) {
+    let mut err = |message: String| {
+        report.schema_errors.push(SchemaError {
+            path: config_path.to_path_buf(),
+            message,
+        });
+    };
+    let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    for v in &config.versions {
+        if seen.insert(v.as_str()) {
+            unique.push(v);
+        } else {
+            err(format!(
+                "`versions` repeats `{v}` — the bucket order is a sort rank and \
+                 (under `split_by_bucket`) the section order, so a value can only \
+                 hold one position; the first occurrence is the one honoured"
+            ));
+        }
+    }
+    if !config.split_by_bucket {
+        return;
+    }
+    // Over the deduplicated list: a value written twice is one heading,
+    // and one collision, however many times it was declared.
+    let tail = config.unbucketed_heading();
+    for v in unique {
+        let clash = if v == crate::FLAT_CATALOG_HEADING {
+            Some("the catalog's own fallback heading".to_string())
+        } else if v == crate::DETAILS_HEADING {
+            Some("the per-feature details heading".to_string())
+        } else if v == tail {
+            Some(match &config.unbucketed_label {
+                Some(_) => "`unbucketed_label`".to_string(),
+                None => format!("the default `unbucketed_label` (`{tail}`)"),
+            })
+        } else {
+            None
+        };
+        if let Some(clash) = clash {
+            err(format!(
+                "`versions` declares `{v}`, which collides with {clash} — \
+                 `generate` would emit two `## {v}` headings"
+            ));
+        }
+    }
+}
+
 fn check_config_fields(
     config_path: &Path,
     config: &Config,
@@ -1291,6 +1363,90 @@ mod tests {
             msgs.iter().any(|m| m.contains("`link` without `column`")),
             "got: {msgs:?}"
         );
+    }
+
+    fn versions_errors(config: &Config) -> Vec<String> {
+        let mut r = ValidationReport::default();
+        check_versions(Path::new("config.toml"), config, &mut r);
+        r.schema_errors.into_iter().map(|e| e.message).collect()
+    }
+
+    /// The rank/section disagreement of #47 is fixed in `index_of`, but
+    /// the config is still describing an order it can't have — and in flat
+    /// mode, where no heading is emitted, this is the *only* thing that
+    /// reports it.
+    #[test]
+    fn versions_check_rejects_a_repeated_entry() {
+        let config = Config {
+            versions: vec!["v1".into(), "v2".into(), "v1".into()],
+            ..Config::default()
+        };
+        let msgs = versions_errors(&config);
+        assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+        assert!(msgs[0].contains("`versions` repeats `v1`"), "got: {msgs:?}");
+    }
+
+    /// One heading, one collision — however many times it was declared.
+    #[test]
+    fn versions_check_reports_a_repeated_reserved_name_once() {
+        let config = Config {
+            versions: vec!["Details".into(), "Details".into()],
+            split_by_bucket: true,
+            ..Config::default()
+        };
+        let msgs = versions_errors(&config);
+        assert_eq!(msgs.len(), 2, "got: {msgs:?}");
+        assert_eq!(
+            msgs.iter().filter(|m| m.contains("collides")).count(),
+            1,
+            "got: {msgs:?}"
+        );
+    }
+
+    /// The three names `render` writes itself, plus the tail label under
+    /// its declared spelling. Each would emit a second `## {name}`.
+    #[test]
+    fn versions_check_rejects_a_bucket_colliding_with_a_structural_heading() {
+        for (versions, unbucketed_label, want) in [
+            (vec!["Details"], None, "the per-feature details heading"),
+            (
+                vec!["Feature catalog"],
+                None,
+                "the catalog's own fallback heading",
+            ),
+            (
+                vec!["Unscheduled"],
+                None,
+                "the default `unbucketed_label` (`Unscheduled`)",
+            ),
+            (vec!["Later"], Some("Later"), "`unbucketed_label`"),
+        ] {
+            let config = Config {
+                versions: versions.iter().map(|v| v.to_string()).collect(),
+                unbucketed_label: unbucketed_label.map(str::to_string),
+                split_by_bucket: true,
+                ..Config::default()
+            };
+            let msgs = versions_errors(&config);
+            assert_eq!(msgs.len(), 1, "{versions:?} got: {msgs:?}");
+            assert!(msgs[0].contains(want), "{versions:?} got: {msgs:?}");
+            assert!(
+                msgs[0].contains(&format!("two `## {}` headings", versions[0])),
+                "{versions:?} got: {msgs:?}"
+            );
+        }
+    }
+
+    /// Flat mode emits no bucket heading at all, so there is nothing for a
+    /// reserved name to collide with — reporting one would be an error
+    /// about a document the tool isn't producing.
+    #[test]
+    fn versions_check_ignores_heading_collisions_in_flat_mode() {
+        let config = Config {
+            versions: vec!["Details".into(), "Unscheduled".into()],
+            ..Config::default()
+        };
+        assert!(versions_errors(&config).is_empty());
     }
 
     /// Wrap the `fm` helper's frontmatter into a feature, for the checks

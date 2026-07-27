@@ -351,6 +351,26 @@ const DEFAULT_BUCKET_LABEL: &str = "Target";
 /// [`Config::unbucketed_label`].
 const DEFAULT_UNBUCKETED_LABEL: &str = "Unscheduled";
 
+/// `##` heading of the single flat catalog table — also the fallback
+/// heading under `split_by_bucket` when the project holds no features.
+pub(crate) const FLAT_CATALOG_HEADING: &str = "Feature catalog";
+
+/// `##` heading of the per-feature detail section.
+pub(crate) const DETAILS_HEADING: &str = "Details";
+
+impl Config {
+    /// Heading of the trailing catalog group under `split_by_bucket`.
+    ///
+    /// One reader for the declared label and its default, so `render` and
+    /// the `validate` collision check cannot disagree about which name the
+    /// document will actually carry.
+    pub(crate) fn unbucketed_heading(&self) -> &str {
+        self.unbucketed_label
+            .as_deref()
+            .unwrap_or(DEFAULT_UNBUCKETED_LABEL)
+    }
+}
+
 /// Declares the allowed values (and shape) of one schema field, so the
 /// project — not this binary — owns its taxonomy.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -515,12 +535,20 @@ fn sort_key<'a>(
 }
 
 /// Build a value → declaration-order index for stable ranking.
+///
+/// **First declaration wins.** A repeated entry is a config mistake that
+/// `validate` rejects (#47), but the renderer still has to pick a rank,
+/// and it must be the same one [`catalog_groups`] picks when it
+/// deduplicates the headings — otherwise a bucket's section is emitted at
+/// its first position while its rows sort at the last, and the document
+/// contradicts itself. `collect()` would give last-wins, which is also
+/// reading a sort rank out of `HashMap` insertion semantics.
 fn index_of(values: &[String]) -> HashMap<&str, usize> {
-    values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (v.as_str(), i))
-        .collect()
+    let mut index = HashMap::with_capacity(values.len());
+    for (i, v) in values.iter().enumerate() {
+        index.entry(v.as_str()).or_insert(i);
+    }
+    index
 }
 
 pub fn sort_features(features: &mut [Feature], config: &Config) {
@@ -918,7 +946,10 @@ fn declared_bucket<'a>(f: &'a Feature, declared: &HashSet<&str>) -> Option<&'a s
 /// produces, and the one an `init`ed-but-unfilled tree would hit first.
 fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usize>)> {
     if !config.split_by_bucket || features.is_empty() {
-        return vec![("Feature catalog".to_string(), (0..features.len()).collect())];
+        return vec![(
+            FLAT_CATALOG_HEADING.to_string(),
+            (0..features.len()).collect(),
+        )];
     }
     let declared: HashSet<&str> = config.versions.iter().map(String::as_str).collect();
     let indices_where = |keep: &dyn Fn(Option<&str>) -> bool| -> Vec<usize> {
@@ -941,10 +972,7 @@ fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usi
         .map(|v| (v.clone(), indices_where(&|b| b == Some(v.as_str()))))
         .collect();
     groups.push((
-        config
-            .unbucketed_label
-            .clone()
-            .unwrap_or_else(|| DEFAULT_UNBUCKETED_LABEL.to_string()),
+        config.unbucketed_heading().to_string(),
         indices_where(&|b| b.is_none()),
     ));
     groups.retain(|(_, rows)| !rows.is_empty());
@@ -1037,7 +1065,7 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
     write_sections(&mut out, sections, Slot::AfterCatalog);
     if !features.is_empty() {
         end_with_blank_line(&mut out);
-        out.push_str("## Details\n");
+        let _ = writeln!(out, "## {DETAILS_HEADING}");
         for f in features {
             let fm = &f.frontmatter;
             // The `<a id>` anchor lives on the detail heading, so the
@@ -1863,9 +1891,9 @@ type = \"feature\"\n";
 
     #[test]
     fn split_by_bucket_emits_a_repeated_version_once() {
-        // A duplicated `versions` entry is a config mistake nothing
-        // rejects; emitting its section twice would duplicate every ID
-        // link, and so every anchor target, in the same document.
+        // A duplicated `versions` entry is a config mistake `validate`
+        // rejects (#47); emitting its section twice would duplicate every
+        // ID link, and so every anchor target, in the same document.
         let config = Config {
             versions: vec!["v0.2.x".into(), "v0.3".into(), "v0.2.x".into()],
             ..cfg_split()
@@ -1873,6 +1901,33 @@ type = \"feature\"\n";
         let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config, &[]);
         assert_eq!(out.matches("## v0.2.x").count(), 1, "got {out}");
         assert_eq!(out.matches("[f-a](#f-a)").count(), 1, "got {out}");
+    }
+
+    /// The half of #47 that isn't a validation error: while the config is
+    /// still wrong, the two readers of `versions` must at least agree.
+    /// `catalog_groups` keeps the first declaration, so `index_of` has to
+    /// rank by it too — last-wins would sort `v0.2.x`'s rows as though the
+    /// bucket came after `v0.3` while its section is emitted before it.
+    #[test]
+    fn a_repeated_version_ranks_and_groups_at_its_first_position() {
+        let config = Config {
+            versions: vec!["v0.2.x".into(), "v0.3".into(), "v0.2.x".into()],
+            ..cfg_split()
+        };
+        let mut features = vec![
+            feat("f-later", Status::Todo, "now", "v0.3"),
+            feat("f-early", Status::Todo, "now", "v0.2.x"),
+        ];
+        sort_features(&mut features, &config);
+        assert_eq!(features[0].frontmatter.id, "f-early");
+
+        let out = render(&features, &config, &[]);
+        let at = |needle: &str| out.find(needle).unwrap_or_else(|| panic!("got {out}"));
+        assert!(at("## v0.2.x") < at("## v0.3"), "got {out}");
+        assert!(
+            at("[f-early](#f-early)") < at("[f-later](#f-later)"),
+            "got {out}"
+        );
     }
 
     #[test]
