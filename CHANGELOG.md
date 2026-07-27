@@ -8,6 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`import` reads checkbox bullets, not only tables (#57).** A
+  hand-written roadmap organised as checkbox bullets carrying a
+  backticked id under bucket headings — arguably the most common shape a
+  repo's `ROADMAP.md` actually takes — imported as nothing at all.
+  Position replaces header inference: the checkbox is the status, the
+  leading backticked token is the `id`, the enclosing heading is the
+  `target`, and the remainder — continuation lines, nested bullets and
+  further paragraphs included — is the body. The bullet form is the
+  richer source, since a table cell holds one line and this holds
+  paragraphs, so the first *sentence* becomes the catalog Summary and the
+  rest stays in `## Details`.
+  Checklists stay checklists: bullets are read only when the document
+  holds no feature table, and within such a document only the ones naming
+  an id — as soon as one bullet does, that is the document's convention
+  and the rest are prose. Nested bullets stay in their parent's body:
+  roadmark has no sub-features, and promoting them would invent ids the
+  source never wrote.
+
 ### Fixed
 
 - **The catalog `Summary` is the body's first *paragraph*, not its first
