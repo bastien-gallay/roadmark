@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The catalog `Summary` is the body's first *paragraph*, not its first
+  line (#55).** An author wrapping that sentence — as an 80-column
+  markdown house style requires — lost everything after the first line,
+  silently: `validate` said nothing and `## Details` rendered the
+  sentence whole, so the two halves of the generated document disagreed
+  and only one was right. The paragraph's lines are now joined with
+  spaces before the existing inline-markdown stripping and
+  width-truncation run. A one-line summary is unaffected.
+
 ## [0.7.0] - 2026-07-27
 
 ### Added

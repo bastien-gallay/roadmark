@@ -580,16 +580,38 @@ const SUMMARY_MAX_CHARS: usize = 120;
 
 /// A short, scannable plain-text lead for the catalog Summary column.
 ///
-/// Takes the first non-empty body line, strips inline markdown (code-span
+/// Takes the first non-empty body **paragraph** — every line up to the next
+/// blank one, joined with spaces — strips inline markdown (code-span
 /// backticks, `*`/`_` emphasis markers, and `[text](url)` links folded to
 /// `text`), collapses whitespace runs to single spaces, then truncates to
 /// [`SUMMARY_MAX_CHARS`] on a word boundary — never mid-word, never mid-`char`.
-/// A line already within the budget is returned unchanged; a truncated one
-/// gains a trailing `" …"`. The full body still lives in the Details section.
+/// A paragraph already within the budget is returned unchanged; a truncated
+/// one gains a trailing `" …"`. The full body still lives in the Details
+/// section.
+///
+/// The paragraph — not the line — is the unit because a house style that wraps
+/// prose at 80 columns would otherwise silently truncate every summary it
+/// wrapped, with `## Details` rendering the sentence whole a few screens down
+/// (#55). Blank lines are the same boundary the body already uses, so a
+/// one-line summary is unaffected.
 fn summary(body: &str) -> String {
-    let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
-    let cleaned = clean_inline_markdown(line);
+    let paragraph = first_paragraph(body);
+    let cleaned = clean_inline_markdown(&paragraph);
     truncate_on_word_boundary(&cleaned, SUMMARY_MAX_CHARS)
+}
+
+/// The first non-blank run of lines, joined with single spaces.
+///
+/// Deliberately blind to markdown block structure: a body whose first
+/// paragraph is a list or a heading joins into one line rather than
+/// being parsed, which keeps this predictable and keeps the promise that
+/// bodies stay unparsed strings.
+fn first_paragraph(body: &str) -> String {
+    body.lines()
+        .skip_while(|l| l.trim().is_empty())
+        .take_while(|l| !l.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Fold inline markdown in a single line down to plain text: `[text](url)` →
@@ -1589,6 +1611,26 @@ type = \"feature\"\n";
         let s = summary(body);
         assert_eq!(s, "A concise lead sentence.");
         assert!(!s.contains('…'));
+    }
+
+    /// A summary wrapped by an 80-column house style is one sentence, not two
+    /// cells' worth — the whole first paragraph makes the cell (#55).
+    #[test]
+    fn summary_joins_a_wrapped_first_paragraph() {
+        let body = "A summary sentence that the author wrapped\n\
+                    across two source lines on purpose.\n\n\
+                    Second paragraph.\n";
+        assert_eq!(
+            summary(body),
+            "A summary sentence that the author wrapped across two source lines on purpose."
+        );
+    }
+
+    /// The blank line still ends it: later paragraphs stay out of the cell.
+    #[test]
+    fn summary_stops_at_the_first_blank_line() {
+        let body = "\n\nLead sentence.\n\nSecond paragraph must not appear.\n";
+        assert_eq!(summary(body), "Lead sentence.");
     }
 
     #[test]
