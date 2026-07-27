@@ -480,8 +480,14 @@ Position replaces the header inference: the checkbox is the status
 (`x`/`~`/`!`/blank), the backticked token is the `id`, the enclosing
 heading is the `target`, and the rest — continuation lines and nested
 bullets included — is the body, whose **first sentence** becomes the
-catalog Summary. Bullets are read only when the document has no feature
-table, so a checklist next to a table of features stays a checklist.
+catalog Summary.
+
+Checklists stay checklists. Bullets are read only when the document has
+no feature table at all, and within such a document only the bullets that
+name an id in backticks — as soon as *one* bullet does, that is the
+document's own convention and the rest are prose. A roadmap where no
+bullet carries an id has no such convention, so all of them are read and
+the slug is derived from the text, with a warning.
 
 What neither shape can tell it splits along the line the schema draws:
 
