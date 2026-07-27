@@ -4,9 +4,11 @@ type = "feature"
 class = "differentiator"
 effort = "M"
 area = ["core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 13
 +++
 
 `split_by_bucket = true` emits one `##`-headed catalog per bucket instead of a single flat table, in the order `versions` declares.

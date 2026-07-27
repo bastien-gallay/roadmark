@@ -4,9 +4,11 @@ type = "feature"
 class = "differentiator"
 effort = "M"
 area = ["core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 14
 +++
 
 `sections` declares hand-written markdown files and where they land in the generated document, injected verbatim.

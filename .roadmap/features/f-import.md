@@ -4,9 +4,11 @@ type = "feature"
 class = "differentiator"
 effort = "L"
 area = ["cli", "core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
 target = ["v0.7"]
+shipped = { version = "v0.7.0", date = "2026-07-27" }
+shipped_order = 16
 +++
 
 `roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half and naming the rest.
