@@ -581,13 +581,23 @@ const SUMMARY_MAX_CHARS: usize = 120;
 /// A short, scannable plain-text lead for the catalog Summary column.
 ///
 /// Takes the first non-empty body **paragraph** — every line up to the next
-/// blank one, joined with spaces — strips inline markdown (code-span
-/// backticks, `*`/`_` emphasis markers, and `[text](url)` links folded to
+/// blank one, joined with spaces — folds the inline markdown a cell should
+/// not carry (`*`/`_` emphasis markers, and `[text](url)` links reduced to
 /// `text`), collapses whitespace runs to single spaces, then truncates to
 /// [`SUMMARY_MAX_CHARS`] on a word boundary — never mid-word, never mid-`char`.
 /// A paragraph already within the budget is returned unchanged; a truncated
 /// one gains a trailing `" …"`. The full body still lives in the Details
 /// section.
+///
+/// **Code spans survive** (#59). The policy the cell follows is that markup
+/// carrying *meaning* stays and markup carrying *decoration* goes: backticks
+/// are the difference between a symbol and a word, and a catalog where
+/// `set_option`, `~/.config/settings.json` and `--add-dir` all arrive as
+/// running prose loses the distinction on most rows. Emphasis is dropped
+/// because a table cell is a scan target rather than prose, and a link is
+/// folded to its text because the row already links to the feature's anchor
+/// and a truncated URL is broken markup. Pipes inside a span are handled
+/// where every other pipe is, by `escape_cell`.
 ///
 /// The paragraph — not the line — is the unit because a house style that wraps
 /// prose at 80 columns would otherwise silently truncate every summary it
@@ -597,7 +607,24 @@ const SUMMARY_MAX_CHARS: usize = 120;
 fn summary(body: &str) -> String {
     let paragraph = first_paragraph(body);
     let cleaned = clean_inline_markdown(&paragraph);
-    truncate_on_word_boundary(&cleaned, SUMMARY_MAX_CHARS)
+    close_dangling_code_span(&truncate_on_word_boundary(&cleaned, SUMMARY_MAX_CHARS))
+}
+
+/// Close a code span the truncation cut in half.
+///
+/// Now that backticks survive into the cell, a summary long enough to be
+/// truncated mid-span would otherwise emit an unbalanced `` ` `` — and an
+/// unclosed span swallows the rest of the row, including the `|` that ends
+/// the cell. Counting is enough: the span is opened and closed by the same
+/// character, so an odd count is exactly one open span.
+fn close_dangling_code_span(cell: &str) -> String {
+    if cell.chars().filter(|c| *c == '`').count() % 2 == 0 {
+        return cell.to_string();
+    }
+    match cell.strip_suffix(" …") {
+        Some(head) => format!("{head}` …"),
+        None => format!("{cell}`"),
+    }
 }
 
 /// The first non-blank run of lines, joined with single spaces.
@@ -614,17 +641,16 @@ fn first_paragraph(body: &str) -> String {
         .join(" ")
 }
 
-/// Fold inline markdown in a single line down to plain text: `[text](url)` →
-/// `text`, drop code-span backticks, drop `*`/`_` **emphasis delimiters** while
-/// keeping them intraword (so `lint_str` / `MAX_SEGMENT_WORDS` identifiers
-/// survive), and collapse runs of whitespace to single spaces (trimming ends).
+/// Fold a single line down to what a catalog cell should carry: `[text](url)`
+/// → `text`, drop `*`/`_` **emphasis delimiters** while keeping them intraword
+/// (so `lint_str` / `MAX_SEGMENT_WORDS` identifiers survive), and collapse runs
+/// of whitespace to single spaces (trimming ends). Code spans are left alone —
+/// see [`summary`] for why they are the exception.
 fn clean_inline_markdown(line: &str) -> String {
     let chars: Vec<char> = strip_inline_links(line).chars().collect();
     let mut out = String::with_capacity(chars.len());
     for (i, &c) in chars.iter().enumerate() {
         match c {
-            // Code-span delimiter: drop, keep the content.
-            '`' => {},
             // A `*`/`_` flanked by alphanumerics on BOTH sides is an
             // identifier char, not an emphasis delimiter — keep it; drop it
             // otherwise (`*bold*`, `_em_`, `**strong**`).
@@ -1050,19 +1076,66 @@ fn write_sections(out: &mut String, sections: &[LoadedSection], slot: Slot) {
     }
 }
 
+/// Width the generated banner keeps its lines under, so a project linting
+/// its markdown at the common 80 columns can lint the output too.
+const BANNER_WIDTH: usize = 80;
+
+/// Continuation indent inside the banner comment.
+const BANNER_INDENT: &str = "     ";
+
+/// The `DO NOT EDIT` header, wrapped to [`BANNER_WIDTH`].
+///
+/// It used to be one 86-column line, so the generated file could not pass
+/// an 80-column markdown lint and there was nothing to edit to fix it —
+/// the file is regenerated (#54). The workaround was to stop linting the
+/// artifact, which is defensible but should be the project's choice, not
+/// something the banner forces.
+///
+/// `source_note` is wrapped too. It *appends* to the banner, so before
+/// this every value could only make the offending line longer — the one
+/// knob a project had made the problem worse.
+fn write_banner(out: &mut String, note: Option<&str>) {
+    out.push_str("<!-- DO NOT EDIT — generated by `roadmark generate`.\n");
+    out.push_str(BANNER_INDENT);
+    out.push_str("Source of truth: `.roadmap/`.");
+    if let Some(note) = note {
+        // A literal `-->` in the note would close the banner comment early,
+        // leaking the remainder as visible text — neutralise it.
+        let note = note.replace("-->", "--&gt;");
+        // Budget: the indent, plus the ` -->` the last line still owes.
+        let width = BANNER_WIDTH - BANNER_INDENT.len() - " -->".len();
+        for line in wrap_words(&note, width) {
+            out.push('\n');
+            out.push_str(BANNER_INDENT);
+            out.push_str(&line);
+        }
+    }
+    out.push_str(" -->\n\n");
+}
+
+/// Greedy word wrap. A single word longer than `width` — a URL, a path —
+/// gets its own line and overflows it rather than being broken: a cut
+/// identifier is worse than a long line, and the caller's budget is a lint
+/// limit, not a hard constraint.
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            },
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
 pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection]) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(8 * 1024);
     let _ = writeln!(out, "# {}\n", config.title);
-    out.push_str(
-        "<!-- DO NOT EDIT — generated by `roadmark generate`. Source of truth: `.roadmap/`.",
-    );
-    if let Some(note) = &config.source_note {
-        // A literal `-->` in the note would close the banner comment early,
-        // leaking the remainder as visible text — neutralise it.
-        let _ = write!(out, " {}", note.replace("-->", "--&gt;"));
-    }
-    out.push_str(" -->\n\n");
+    write_banner(&mut out, config.source_note.as_deref());
     write_sections(&mut out, sections, Slot::BeforeCatalog);
     // Only emit an axis column when at least one feature carries a value
     // for it; `always` columns are the table's identity and stay put.
@@ -1652,15 +1725,31 @@ type = \"feature\"\n";
     }
 
     #[test]
-    fn summary_strips_inline_markdown() {
+    fn summary_keeps_code_spans_and_drops_decoration() {
         let body = "Migrate `.roadmap/` with *bold* and _em_ and a [F22](#f22) link.";
         let s = summary(body);
-        assert!(!s.contains('`'), "backticks remain: {s:?}");
         assert!(!s.contains('*'), "asterisks remain: {s:?}");
-        assert!(!s.contains('_'), "underscores remain: {s:?}");
-        assert!(s.contains("F22"));
         assert!(!s.contains("#f22"), "link url leaked: {s:?}");
-        assert_eq!(s, "Migrate .roadmap/ with bold and em and a F22 link.");
+        // A code span is the difference between a symbol and a word, so it
+        // stays; emphasis is decoration in a scan target, so it goes (#59).
+        assert_eq!(s, "Migrate `.roadmap/` with bold and em and a F22 link.");
+    }
+
+    /// Truncation must not leave a span open: an unclosed backtick swallows
+    /// the rest of the row, including the `|` that ends the cell.
+    #[test]
+    fn a_code_span_cut_by_the_truncation_is_closed() {
+        let body = format!(
+            "{} `an::identifier::cut::in::half",
+            "padding word ".repeat(12)
+        );
+        let s = summary(&body);
+        assert!(s.ends_with(" …"), "got {s:?}");
+        assert_eq!(
+            s.chars().filter(|c| *c == '`').count() % 2,
+            0,
+            "unbalanced code span: {s:?}"
+        );
     }
 
     #[test]
@@ -1701,7 +1790,8 @@ type = \"feature\"\n";
         assert!(s.contains("Engine::with_profile"), "got {s:?}");
         assert!(s.contains("Engine::lint_str"), "got {s:?}");
         assert!(s.contains("MAX_SEGMENT_WORDS"), "got {s:?}");
-        assert!(!s.contains('`'), "backticks remain: {s:?}");
+        // …and the code spans around them survive (#59).
+        assert!(s.contains("`Engine::with_profile`"), "got {s:?}");
     }
 
     #[test]
@@ -1723,7 +1813,13 @@ type = \"feature\"\n";
         let out = render(&[], &config, &[]);
         assert!(out.starts_with("# My Project — Roadmap\n\n"));
         assert!(out.contains("generated by `roadmark generate`"));
-        assert!(out.contains("Source of truth: `.roadmap/`. See docs/adr. -->"));
+        // The note wraps onto its own line rather than lengthening the
+        // banner's first one — that is the whole point of #54.
+        assert!(out.contains("Source of truth: `.roadmap/`.\n     See docs/adr. -->"));
+        // Every banner line fits the 80-column lint the output must pass.
+        for line in out.lines().take_while(|l| !l.is_empty()) {
+            assert!(line.chars().count() <= 80, "banner line too long: {line:?}");
+        }
     }
 
     #[test]
@@ -1767,9 +1863,10 @@ type = \"feature\"\n";
         let out = render(&[f], &cfg(), &[]);
         // The row must carry only the intended column separators plus
         // the two escaped literals — never a raw unescaped `|` in the text.
-        // The summary strips code-span backticks; pipe-escaping still applies.
+        // The summary keeps the code span (#59); pipe-escaping applies
+        // inside it, which is what makes backticks safe in a cell.
         assert!(out.contains("CLI \\| TUI"));
-        assert!(out.contains("Support a \\| b operator."));
+        assert!(out.contains("Support `a \\| b` operator."));
     }
 
     #[test]

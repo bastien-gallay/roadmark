@@ -30,6 +30,23 @@ and this project adheres to
 
 ### Fixed
 
+- **The generated banner wraps, so the output can pass an 80-column lint
+  (#54).** `render` opened every file with one 86-character `DO NOT EDIT`
+  line, so a project linting its markdown at the common 80 columns could
+  not lint the artifact — and there was nothing to edit to fix it, since
+  the file is regenerated. The only knob, `source_note`, *appended* to
+  that line and could only make it worse; it now wraps onto its own
+  lines too. Nothing `render` emits on its own exceeds 80 columns.
+- **Code spans survive into the catalog `Summary` (#59).** Backticks were
+  stripped from the cell and kept in `## Details`, so the same sentence
+  rendered two ways in one document and the catalog — the part most
+  people read — lost the difference between a symbol and a word:
+  `set_option`, `~/.config/settings.json` and `--add-dir` all arrived as
+  running prose. The cell now keeps markup that carries meaning and drops
+  markup that carries decoration: code spans stay, emphasis goes, and a
+  link is folded to its text because the row already links to the
+  feature's anchor. A span cut by the width truncation is closed, so an
+  unbalanced backtick can never swallow the rest of the row.
 - **The catalog `Summary` is the body's first *paragraph*, not its first
   line (#55).** An author wrapping that sentence — as an 80-column
   markdown house style requires — lost everything after the first line,
