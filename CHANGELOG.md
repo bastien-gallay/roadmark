@@ -60,7 +60,6 @@ and this project adheres to
 - **`required_when` accepts a list.** `{ horizon = ["now", "next"] }`
   fires when the field holds either; multiple keys are still ANDed. The
   scalar form is unchanged and means the same as a one-element list.
-
 - **`sections`: hand-written narrative in the generated document.**
   `generate` emitted title → banner → catalog → details, with nowhere to
   put prose that belongs to no single feature — dated triage notes, "why
@@ -80,7 +79,6 @@ and this project adheres to
   assembled partly from outside the source tree can't be reproduced from
   a checkout of it.
   ([#21](https://github.com/bastien-gallay/roadmark/issues/21))
-
 - **`split_by_bucket = true`: one catalog section per bucket.** Until
   now `versions` was only a sort key, so a roadmap organised *by* its
   buckets — MoSCoW, quarters, release trains — flattened to one long
@@ -128,8 +126,7 @@ and this project adheres to
   values cost nothing. `status` remains the
   one hardcoded taxonomy field rather than config-declared like the
   others — see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md) for
-  why. Closes #37.
-
+  why. ([#37](https://github.com/bastien-gallay/roadmark/issues/37))
 - **`validate` reports warnings as well as errors.** A second, soft tier:
   warnings are printed and counted but never change the exit code. They
   name work a human still owes the file rather than a tree that would
