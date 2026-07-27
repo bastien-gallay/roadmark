@@ -137,6 +137,8 @@ The section carries the bucket, so the bucket column drops out inside it — the
 
 Opt-in, because it rewrites every line of the generated file. `bucket_label` and `unbucketed_label` come with it: `versions` is a bucket order, and the vocabulary belongs to the project rather than to this binary.
 
+Making `versions` name document positions rather than only sort ranks put weight on writing it correctly, so `validate` now checks it. A repeated entry can only hold one position. And splitting turns every project-supplied name — each bucket, plus `unbucketed_label` — into a `##` heading in a document that already writes `## Details` and the `## Feature catalog` a feature-less tree falls back to, so any two landing on the same text emit that heading twice. Both are schema errors rather than a behaviour the generator picks — and ranking is first-wins on both sides of the split, so sorting and grouping can no longer disagree about where a bucket sits.
+
 ### <a id="f-declared-fields"></a>F-declared-fields
 
 A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and optionally rendered as a linked catalog column.

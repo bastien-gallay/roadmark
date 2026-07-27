@@ -192,6 +192,43 @@ fn anchor_collision_detected() {
     assert_eq!(report.anchor_collisions[0].anchor, "f-foo");
 }
 
+/// #47 end to end: a `versions` that repeats an entry, and one that names
+/// a heading `render` writes itself, both fail the run from the same
+/// check — a config describing a document order the generator cannot
+/// produce.
+#[test]
+fn a_bad_versions_order_is_a_hard_error() {
+    let root = unique_tmp("bad-versions");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        "versions = [\"v0.2.x\", \"Details\", \"v0.2.x\"]\nsplit_by_bucket = true\n\
+         [fields.type]\nvalues = [\"feature\", \"fix\", \"chore\"]\n\
+         [fields.area]\nvalues = [\"x\"]\nmulti = true\n",
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-a.md"),
+        feature_src("F-a", "", "Whatever.\n"),
+    )
+    .unwrap();
+
+    let tmp_md = unique_tmp("bad-versions-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, "").unwrap();
+
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(report.has_hard_errors());
+    let text = report.to_text();
+    assert!(text.contains("`versions` repeats `v0.2.x`"), "got: {text}");
+    assert!(
+        text.contains("collides with the per-feature details heading"),
+        "got: {text}"
+    );
+}
+
 /// A tree carrying a horizon still owes `[fields.horizon]`: the declared
 /// value order is what ranks the features that carry one (#34).
 #[test]

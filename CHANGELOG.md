@@ -153,6 +153,23 @@ and this project adheres to
 
 ### Fixed
 
+- **A `versions` order that can't be honoured is now a schema error, and
+  sorting no longer disagrees with grouping about a repeated entry.**
+  `versions` is a bucket order — a sort rank, and since `split_by_bucket`
+  also the section order — and nothing rejected a value written twice.
+  The two readers then resolved it differently: sorting kept the *last*
+  index (a `HashMap` insertion detail, which is no way to read a sort
+  rank), grouping the *first*, so the section order and the row order
+  contradicted each other and the document silently presented features in
+  an order the config did not describe. Ranking is now first-wins on both
+  sides, and `validate` reports the repeat against `config.toml` rather
+  than picking a behaviour. The same check rejects two headings landing
+  on the same text: under `split_by_bucket` every bucket is a `##` and so
+  is `unbucketed_label`, in a document that already writes `## Details`
+  and the `## Feature catalog` a feature-less tree falls back to — any of
+  those pairs emitted the same `##` twice, which is ambiguous navigation
+  and MD024 for anyone linting their generated `ROADMAP.md`.
+  ([#47](https://github.com/bastien-gallay/roadmark/issues/47))
 - **`validate` no longer requires `[fields.horizon]` when no feature
   carries a horizon.** ADR-0002 settled that a project may leave an axis
   out entirely, but the validator still demanded the section

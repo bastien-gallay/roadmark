@@ -312,9 +312,8 @@ unused axis drops its column — but only when the heading carries the
 picks the section, and so does a target `versions` doesn't declare,
 because no heading can carry it at all. Splitting never hides a value.
 
-A declared-but-empty bucket emits no heading, and a repeated `versions`
-entry emits its section once. Features with no `target` — or an
-undeclared one — collect in a trailing **Unscheduled** section. A
+A declared-but-empty bucket emits no heading. Features with no `target`
+— or an undeclared one — collect in a trailing **Unscheduled** section. A
 project with no features yet keeps the flat `Feature catalog` heading:
 there is nothing to split.
 
@@ -325,6 +324,23 @@ surface for no navigational gain.
 It is opt-in because it rewrites every line of the generated file. For a
 project with few features, or no meaningful bucket axis, the flat table
 is the right output.
+
+`versions` names document positions, so two ways of writing it are
+schema errors `validate` reports against `config.toml`:
+
+- **a repeated entry** — `["v1", "v2", "v1"]`. A bucket can only hold
+  one position; the first occurrence is what sorting and grouping both
+  honour, but the config is describing an order the document doesn't
+  have. Reported in flat mode too, where it still shifts rows into a
+  bucket position nobody wrote down
+- **two headings landing on the same text** — under `split_by_bucket`
+  every bucket is a `##`, and so is `unbucketed_label` (`Unscheduled` by
+  default), in a document that already holds `## Details` and the
+  `## Feature catalog` a feature-less tree falls back to. A bucket
+  colliding with either of those, an `unbucketed_label` colliding with
+  either, or a bucket colliding with `unbucketed_label` all emit the same
+  `##` twice: ambiguous navigation, and MD024 if you lint the generated
+  file
 
 #### Hand-written narrative
 
@@ -391,7 +407,8 @@ fail the run:
 - **schema errors** — malformed frontmatter, unknown field values, a
   single-valued field given a list, a missing `required_when` field, or a
   `[fields.X]` declaration missing for an axis some feature actually
-  carries
+  carries, or a `versions` order that repeats an entry or collides with a
+  structural heading
 - **duplicate ids / anchor collisions** — two features that would produce
   the same `<a id="…">` anchor (checked case-insensitively)
 - **dangling links** — a body links `](#f-something)` at a feature id
