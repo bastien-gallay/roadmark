@@ -480,7 +480,7 @@ fn check_kind(kind: FieldKind, value: &str) -> Result<(), &'static str> {
 }
 
 /// The body is the summary field, just not declared as one: `render` takes
-/// the catalog's `Summary` cell from its first non-empty line. An empty (or
+/// the catalog's `Summary` cell from its first non-empty paragraph. An empty (or
 /// whitespace-only) body therefore produces a row that links somewhere and
 /// says nothing, plus a `## Details` heading with nothing under it (#38).
 ///

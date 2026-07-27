@@ -105,7 +105,7 @@ status = "todo"
 target = ["<TODO>"]
 +++
 
-<TODO: one-paragraph summary — first non-empty line becomes the catalog row's Summary column.>
+<TODO: one-paragraph summary — the first paragraph becomes the catalog row's Summary column.>
 "#,
     )
 }

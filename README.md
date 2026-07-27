@@ -121,7 +121,7 @@ full config.
 
 One feature = one file. Two people never edit the same line, so the roadmap
 has **zero merge conflicts**. Each feature carries structured frontmatter
-plus a free markdown body whose first non-empty line becomes the catalog
+plus a free markdown body whose first paragraph becomes the catalog
 summary. The taxonomy is **yours**: statuses, effort levels, horizons, and
 areas are declared in `config.toml`, with no process religion baked in.
 
@@ -151,7 +151,8 @@ status = "todo"         # wip | blocked | todo | done
 target = ["v0.2"]       # first entry drives the sort bucket
 +++
 
-One-paragraph summary — the first non-empty line lands in the Summary column.
+One-paragraph summary — the first paragraph, wrapped or not, lands in
+the Summary column.
 ```
 
 Frontmatter keys roadmark neither models nor sees declared in your config
