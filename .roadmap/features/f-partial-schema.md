@@ -22,9 +22,11 @@ keeps one meaning: a gap in an axis this project *does* use.
 This unblocks adoption for projects whose priority already lives on a
 tracker board (GitHub Projects, Jira): they get the file layout without a
 second home for `horizon`, and without a catalog three columns of which are
-`—` on every row. `#[serde(deny_unknown_fields)]` on the frontmatter keeps a
-typo'd key (`horizen = "next"`) a parse error rather than a silent "no
-horizon".
+`—` on every row. A typo'd key (`horizen = "next"`) is rejected rather than
+read as a silent "no horizon" — by `#[serde(deny_unknown_fields)]` when
+this shipped, and since [F-declared-fields](#f-declared-fields) by
+`check_declared_fields`, which reads the config so it can name the
+declaration that would make the key legal.
 
 Rationale and the rejected config-driven alternative:
 [ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in

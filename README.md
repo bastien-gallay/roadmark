@@ -251,7 +251,7 @@ every axis: no feature carries the field, no column. Values are
 percent-encoded into the `link` template, so a free-text value like
 `Jane Doe (ops)` still produces a working link.
 
-Two names you can't declare. `id`, `status`, `target`, `shipped` and
+Two things you can't do. `id`, `status`, `target`, `shipped` and
 `shipped_order` are core schema, not taxonomy axes — declaring one
 constrains nothing (`status` in particular is deliberately hardcoded,
 see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md)). And `column`

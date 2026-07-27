@@ -4,8 +4,8 @@ type = "feature"
 class = "differentiator"
 effort = "L"
 area = ["cli", "core"]
-horizon = "now"
-status = "wip"
+horizon = "next"
+status = "done"
 target = ["v0.7"]
 +++
 
