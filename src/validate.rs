@@ -689,18 +689,6 @@ fn token_runs(body: &str) -> Vec<&str> {
         .collect()
 }
 
-/// One-time config sanity: reject a `[fields.*]` name the generator doesn't
-/// model (a typo silently disables that field's validation), and require a
-/// `[fields.X]` section for every *omissible* axis the tree actually uses.
-///
-/// "Actually uses" is [`axis_in_use`], the same predicate that decides
-/// whether `render` emits a column for the axis, so the validator and the
-/// renderer cannot disagree about which axes this project holds. Requiring
-/// a declaration for an axis no feature carries would force a project to
-/// declare values nothing uses and nothing renders — the second home for a
-/// value that [ADR-0002](../docs/adr/0002-partial-schema-adoption.md)
-/// exists to remove (#34).
-///
 /// Read every declared narrative section, reporting the ones that can't
 /// be read instead of aborting the run.
 ///
@@ -748,18 +736,6 @@ fn check_sections(
     loaded
 }
 
-/// The scan runs over [`Frontmatter::OMISSIBLE_FIELD_NAMES`], not all of
-/// `FIELD_NAMES`. `type` and `area` are structurally mandatory, so "in use"
-/// is always true for them and the rule would degenerate into "every
-/// project must enumerate a taxonomy for `type` and `area`" — a policy
-/// this tool does not get to impose, and one that would break every config
-/// that omits them today. Declaring either is still supported and still
-/// enforced per feature.
-///
-/// When the axis *is* used the omission stays a hard error: without the
-/// declaration nothing checks the values, and for `horizon` the declared
-/// order is also the sort rank, so within-tier ordering degrades to id
-/// order for every feature carrying one.
 /// `versions` is a bucket *order*: a sort rank, and since #35 also the
 /// section order under `split_by_bucket`. Two ways to write one that no
 /// single behaviour can honour (#47).
@@ -771,17 +747,18 @@ fn check_sections(
 /// doesn't have, and saying so is the whole promise of this command.
 ///
 /// **A collision with a heading `render` writes itself.** Under
-/// `split_by_bucket` a bucket becomes `## {bucket}`, alongside
-/// `## Details` and the tail group's heading — a `versions` entry equal to
-/// any of them (or an `unbucketed_label` equal to a declared bucket) emits
+/// `split_by_bucket` every project-supplied name becomes a `##` heading —
+/// each bucket, and the tail group's label — in a document that already
+/// holds [`structural_heading`]s. Any pair landing on the same text emits
 /// the same `##` twice: ambiguous navigation, and MD024 for anyone linting
-/// their generated `ROADMAP.md`.
+/// their generated `ROADMAP.md`. Three pairs, all checked: a bucket
+/// against a structural heading, `unbucketed_label` against a structural
+/// heading, and a bucket against `unbucketed_label`.
 ///
 /// The collision checks are gated on `split_by_bucket` because flat mode
-/// emits no bucket heading at all, so there is nothing to collide with and
-/// the error would be about a document the tool isn't producing.
-/// `Feature catalog` stays reserved even so: it is the fallback heading a
-/// split project with no features falls back to.
+/// emits neither a bucket heading nor a tail one, so there is nothing to
+/// collide with and the error would be about a document the tool isn't
+/// producing.
 fn check_versions(config_path: &Path, config: &Config, report: &mut ValidationReport) {
     let mut err = |message: String| {
         report.schema_errors.push(SchemaError {
@@ -805,22 +782,26 @@ fn check_versions(config_path: &Path, config: &Config, report: &mut ValidationRe
     if !config.split_by_bucket {
         return;
     }
+    // The tail group is a heading like any other, so it is checked as a
+    // heading and not only as something buckets may collide *with*:
+    // `unbucketed_label = "Details"` needs no `versions` entry at all to
+    // put a second `## Details` in the document.
+    let tail = config.unbucketed_heading();
+    if let Some(what) = structural_heading(tail) {
+        err(format!(
+            "`unbucketed_label` resolves to `{tail}`, which is {what} — \
+             `generate` would emit two `## {tail}` headings"
+        ));
+    }
     // Over the deduplicated list: a value written twice is one heading,
     // and one collision, however many times it was declared.
-    let tail = config.unbucketed_heading();
     for v in unique {
-        let clash = if v == crate::FLAT_CATALOG_HEADING {
-            Some("the catalog's own fallback heading".to_string())
-        } else if v == crate::DETAILS_HEADING {
-            Some("the per-feature details heading".to_string())
-        } else if v == tail {
-            Some(match &config.unbucketed_label {
+        let clash = structural_heading(v).map(str::to_string).or_else(|| {
+            (v == tail).then(|| match &config.unbucketed_label {
                 Some(_) => "`unbucketed_label`".to_string(),
                 None => format!("the default `unbucketed_label` (`{tail}`)"),
             })
-        } else {
-            None
-        };
+        });
         if let Some(clash) = clash {
             err(format!(
                 "`versions` declares `{v}`, which collides with {clash} — \
@@ -830,6 +811,46 @@ fn check_versions(config_path: &Path, config: &Config, report: &mut ValidationRe
     }
 }
 
+/// Names `render` writes as `##` headings on its own account, so no
+/// project-supplied heading may take one.
+///
+/// `Feature catalog` is reserved even under `split_by_bucket`, where it
+/// only surfaces if the project holds no features: a tree between its
+/// `init` and its first feature file is exactly when a config is being
+/// written, and reserving the name unconditionally is cheaper than a rule
+/// that switches on how full the tree happens to be.
+fn structural_heading(name: &str) -> Option<&'static str> {
+    match name {
+        crate::DETAILS_HEADING => Some("the per-feature details heading"),
+        crate::FLAT_CATALOG_HEADING => Some("the catalog's own heading for a feature-less tree"),
+        _ => None,
+    }
+}
+
+/// One-time config sanity: reject a `[fields.*]` name the generator doesn't
+/// model (a typo silently disables that field's validation), and require a
+/// `[fields.X]` section for every *omissible* axis the tree actually uses.
+///
+/// "Actually uses" is [`axis_in_use`], the same predicate that decides
+/// whether `render` emits a column for the axis, so the validator and the
+/// renderer cannot disagree about which axes this project holds. Requiring
+/// a declaration for an axis no feature carries would force a project to
+/// declare values nothing uses and nothing renders — the second home for a
+/// value that [ADR-0002](../docs/adr/0002-partial-schema-adoption.md)
+/// exists to remove (#34).
+///
+/// The scan runs over [`Frontmatter::OMISSIBLE_FIELD_NAMES`], not all of
+/// `FIELD_NAMES`. `type` and `area` are structurally mandatory, so "in use"
+/// is always true for them and the rule would degenerate into "every
+/// project must enumerate a taxonomy for `type` and `area`" — a policy
+/// this tool does not get to impose, and one that would break every config
+/// that omits them today. Declaring either is still supported and still
+/// enforced per feature.
+///
+/// When the axis *is* used the omission stays a hard error: without the
+/// declaration nothing checks the values, and for `horizon` the declared
+/// order is also the sort rank, so within-tier ordering degrades to id
+/// order for every feature carrying one.
 fn check_config_fields(
     config_path: &Path,
     config: &Config,
@@ -1412,7 +1433,7 @@ mod tests {
             (
                 vec!["Feature catalog"],
                 None,
-                "the catalog's own fallback heading",
+                "the catalog's own heading for a feature-less tree",
             ),
             (
                 vec!["Unscheduled"],
@@ -1437,6 +1458,35 @@ mod tests {
         }
     }
 
+    /// The tail heading is project-supplied too, and needs no `versions`
+    /// entry to collide: `unbucketed_label = "Details"` alone puts a second
+    /// `## Details` in the document, from the group `catalog_groups`
+    /// always appends.
+    #[test]
+    fn versions_check_rejects_an_unbucketed_label_taking_a_structural_heading() {
+        for (label, want) in [
+            ("Details", "the per-feature details heading"),
+            (
+                "Feature catalog",
+                "the catalog's own heading for a feature-less tree",
+            ),
+        ] {
+            let config = Config {
+                versions: vec!["v1".into()],
+                unbucketed_label: Some(label.to_string()),
+                split_by_bucket: true,
+                ..Config::default()
+            };
+            let msgs = versions_errors(&config);
+            assert_eq!(msgs.len(), 1, "{label} got: {msgs:?}");
+            assert!(
+                msgs[0].contains(&format!("`unbucketed_label` resolves to `{label}`")),
+                "{label} got: {msgs:?}"
+            );
+            assert!(msgs[0].contains(want), "{label} got: {msgs:?}");
+        }
+    }
+
     /// Flat mode emits no bucket heading at all, so there is nothing for a
     /// reserved name to collide with — reporting one would be an error
     /// about a document the tool isn't producing.
@@ -1444,6 +1494,7 @@ mod tests {
     fn versions_check_ignores_heading_collisions_in_flat_mode() {
         let config = Config {
             versions: vec!["Details".into(), "Unscheduled".into()],
+            unbucketed_label: Some("Feature catalog".into()),
             ..Config::default()
         };
         assert!(versions_errors(&config).is_empty());

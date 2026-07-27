@@ -140,11 +140,12 @@ and this project adheres to
   contradicted each other and the document silently presented features in
   an order the config did not describe. Ranking is now first-wins on both
   sides, and `validate` reports the repeat against `config.toml` rather
-  than picking a behaviour. The same check rejects a bucket named like a
-  heading `generate` writes itself — `Details`, `Feature catalog`, or
-  whatever `unbucketed_label` resolves to — which under `split_by_bucket`
-  emitted the same `##` twice: ambiguous navigation, and MD024 for anyone
-  linting their generated `ROADMAP.md`.
+  than picking a behaviour. The same check rejects two headings landing
+  on the same text: under `split_by_bucket` every bucket is a `##` and so
+  is `unbucketed_label`, in a document that already writes `## Details`
+  and the `## Feature catalog` a feature-less tree falls back to — any of
+  those pairs emitted the same `##` twice, which is ambiguous navigation
+  and MD024 for anyone linting their generated `ROADMAP.md`.
   ([#47](https://github.com/bastien-gallay/roadmark/issues/47))
 - **`validate` no longer requires `[fields.horizon]` when no feature
   carries a horizon.** ADR-0002 settled that a project may leave an axis

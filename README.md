@@ -326,11 +326,14 @@ schema errors `validate` reports against `config.toml`:
   honour, but the config is describing an order the document doesn't
   have. Reported in flat mode too, where it still shifts rows into a
   bucket position nobody wrote down
-- **a bucket named like a heading `generate` writes itself** —
-  `Details`, `Feature catalog`, or whatever `unbucketed_label` resolves
-  to (`Unscheduled` by default). Under `split_by_bucket` that emits the
-  same `##` twice: ambiguous navigation, and MD024 if you lint the
-  generated file
+- **two headings landing on the same text** — under `split_by_bucket`
+  every bucket is a `##`, and so is `unbucketed_label` (`Unscheduled` by
+  default), in a document that already holds `## Details` and the
+  `## Feature catalog` a feature-less tree falls back to. A bucket
+  colliding with either of those, an `unbucketed_label` colliding with
+  either, or a bucket colliding with `unbucketed_label` all emit the same
+  `##` twice: ambiguous navigation, and MD024 if you lint the generated
+  file
 
 #### Hand-written narrative
 
