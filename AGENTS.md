@@ -177,6 +177,19 @@ Subcommand modules follow the same split:
   spans every feature, not each section's rows: a per-section probe
   would let a column appear and vanish down the page.
 
+- **Nothing `render` emits on its own may exceed 80 columns.** Not the
+  banner, not a heading, not a shipped line. A generated file a project
+  cannot lint is a file it must exclude, and the exclusion is forced by
+  the tool rather than chosen by the project (#54) — the banner was 86
+  columns and there was nothing to edit, since the file is regenerated.
+  Table rows are exempt (markdownlint's `tables: false` is the standard
+  answer) and so is verbatim author text: a long body line — or a
+  `source_note` holding a URL longer than the budget, which `wrap_words`
+  overflows rather than breaking mid-token — is the project's own choice,
+  and one it can fix in its own source. There is a per-line assertion in
+  `render_uses_title_and_source_note`; extend it rather than working
+  around it, and wrap with `wrap_words` when a new emitted line can grow.
+
 - **Replacing a validation rule: enumerate what the old one covered
   before you delete it.** A check usually guards more than the case that
   motivated it. Removing the "unknown `[fields.X]`" config check — right,
