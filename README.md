@@ -240,7 +240,16 @@ as far as roadmark is concerned — only a projection needs to know it
 means an issue.
 
 Declared columns land just before `Summary` and follow the same rule as
-every axis: no feature carries the field, no column.
+every axis: no feature carries the field, no column. Values are
+percent-encoded into the `link` template, so a free-text value like
+`Jane Doe (ops)` still produces a working link.
+
+Two names you can't declare. `id`, `status`, `target`, `shipped` and
+`shipped_order` are core schema, not taxonomy axes — declaring one
+constrains nothing (`status` in particular is deliberately hardcoded,
+see [ADR-0003](docs/adr/0003-status-stays-hardcoded.md)). And `column`
+on a built-in axis is refused: it already has one, so the declaration
+would print the same value twice. Both are schema errors.
 
 **Unknown keys are still rejected.** A frontmatter key that no
 `[fields.*]` declares fails `generate` and is a `validate` schema error,
@@ -354,6 +363,11 @@ Two properties make this safe to rely on:
   error, not a silent hole. `generate` would fail outright, so a passing
   `validate` would be promising a document the next command refuses to
   produce.
+- **Held to the same cross-reference rules as a feature body.** A
+  `[F-foo](#f-foo)` link in a section is checked by `validate` and
+  rewritten by `rename`. Sections are where cross-feature prose lives, so
+  they're the *likeliest* home for a link to a feature — and a dead one
+  there is invisible to anchor drift, which only compares `<a id>` tags.
 
 Paths are relative to the `.roadmap/` root and must stay inside it: an
 absolute path or a `..` component is a schema error. `.roadmap/` is the

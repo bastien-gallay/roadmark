@@ -77,11 +77,30 @@ pub struct Frontmatter {
 }
 
 impl Frontmatter {
-    /// The schema fields this generator models. A config `[fields.*]` name
-    /// outside this set is a typo that would otherwise silently disable
-    /// validation, so `validate` rejects it.
+    /// The taxonomy axes this generator models — the ones a `[fields.*]`
+    /// section can constrain with `values` / `multi` / `required_when`.
+    ///
+    /// Since #22 a `[fields.*]` name *outside* this set is not a typo but
+    /// a project-declared field. The typo guard moved to
+    /// [`check_declared_fields`], which rejects a frontmatter key nobody
+    /// declares — see [`Self::RESERVED_FIELD_NAMES`] for the names that
+    /// are neither.
     pub const FIELD_NAMES: &'static [&'static str] =
         &["type", "class", "effort", "area", "horizon", "severity"];
+
+    /// Modelled frontmatter keys that are **not** declarable axes.
+    ///
+    /// They are structural: `id` and `target` drive anchors and bucketing,
+    /// `status` is the one hardcoded taxonomy
+    /// ([ADR-0003](../docs/adr/0003-status-stays-hardcoded.md)), and
+    /// `shipped`/`shipped_order` are shipping metadata. None of them
+    /// answers [`Self::field_values`], and because they parse into named
+    /// struct fields none reaches [`Frontmatter::extra`] either — so a
+    /// `[fields.status]` would constrain nothing while making every
+    /// feature look like it were missing a `status`. Declaring one is a
+    /// config error, not a project field.
+    pub const RESERVED_FIELD_NAMES: &'static [&'static str] =
+        &["id", "status", "target", "shipped", "shipped_order"];
 
     /// The axes a feature may leave out **entirely** — the ones ADR-0002 is
     /// about. `type` and `area` are absent from this list because they are
@@ -118,10 +137,14 @@ impl Frontmatter {
             "area" => Some(self.area.clone()),
             "horizon" => Some(opt(&self.horizon)),
             "severity" => Some(opt(&self.severity)),
-            // A declared field the feature omits is absent from `extra`,
-            // so it reads as `None` and no `required_when` could fire.
-            // Answer `Some(vec![])` for anything the config declares —
-            // "declared but unset" is exactly what `required_when` is for.
+            // A project-declared field the feature omits is simply absent
+            // from `extra`, and this function has no `Config` to tell
+            // "declared but unset" from "not a field at all" — so both
+            // answer `None`. Callers iterating `config.fields` already
+            // know the name is declared and read this as an empty value
+            // list (`unwrap_or_default`), which is what lets
+            // `required_when` fire on an omitted field. Don't read
+            // `is_some()` as "declared"; it means "carried".
             _ => self.extra.get(name).map(toml_values),
         }
     }
@@ -658,6 +681,37 @@ pub(crate) fn anchor_id(id: &str) -> String {
     id.to_lowercase()
 }
 
+/// Percent-encode a value for substitution into a `link` template.
+///
+/// Keeps the RFC 3986 unreserved set plus the few sub-delimiters a forge
+/// path routinely carries (`/`, `-`, `_`, `.`, `~`); everything else — a
+/// space, a parenthesis, a `|` — becomes `%XX`. Without this, a value
+/// like `Jane Doe (ops)` produces a markdown link that terminates at the
+/// first space and leaves an unbalanced paren behind.
+///
+/// Hand-rolled rather than pulled in: it's a byte loop over a table, and
+/// a dependency for that would be its own kind of cost.
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char)
+            },
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Escape a value used as markdown *link text*: an unescaped `[` or `]`
+/// would close the text early and leave the rest as literal characters.
+fn escape_link_text(s: &str) -> String {
+    s.replace('\\', r"\\")
+        .replace('[', r"\[")
+        .replace(']', r"\]")
+}
+
 /// Escape free text destined for a `|`-delimited markdown table cell:
 /// a literal `|` would open a spurious column and a newline would break
 /// the row, so escape the former and fold the latter to a space.
@@ -788,6 +842,13 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
         let Some(header) = &spec.column else {
             continue;
         };
+        // A built-in axis already has its column above; emitting a second
+        // one would print the same value twice under two headers.
+        // `validate` reports the declaration; skipping here keeps a tree
+        // that ignored the report from rendering the duplicate.
+        if Frontmatter::FIELD_NAMES.contains(&name.as_str()) {
+            continue;
+        }
         let name = name.clone();
         let link = spec.link.clone();
         columns.push(CatalogColumn {
@@ -801,12 +862,16 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
                 let rendered: Vec<String> = values
                     .iter()
                     .map(|v| match &link {
-                        // The value goes in the link text as written, so
-                        // `#42` reads as `#42` and links to issue 42.
+                        // The value goes in the link *text* as written, so
+                        // `#42` reads as `#42` and links to issue 42 — but
+                        // the URL gets a percent-encoded copy, or a value
+                        // like `Jane Doe (ops)` emits a link whose spaces
+                        // and unbalanced parens break it.
                         Some(template) => {
                             format!(
-                                "[{v}]({})",
-                                template.replace("{}", v.trim_start_matches('#'))
+                                "[{}]({})",
+                                escape_link_text(v),
+                                template.replace("{}", &percent_encode(v.trim_start_matches('#')))
                             )
                         },
                         None => v.clone(),
@@ -2028,6 +2093,69 @@ type = \"feature\"\n";
             .find(|l| l.starts_with("| ID |"))
             .expect("header row");
         assert!(header.ends_with("| Tracked | Summary |"), "got {header:?}");
+    }
+
+    /// A built-in axis already has a column; a `column` declaration on one
+    /// must not emit the same value twice under two headers.
+    #[test]
+    fn a_column_declared_on_a_builtin_axis_does_not_duplicate_it() {
+        let mut config = cfg();
+        config.fields.insert(
+            "horizon".to_string(),
+            FieldSpec {
+                values: vec!["now".into()],
+                column: Some("When".into()),
+                ..FieldSpec::default()
+            },
+        );
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config, &[]);
+        assert!(out.contains("| Horizon |"), "got {out}");
+        assert!(!out.contains("| When |"), "got {out}");
+        // The value appears once, under the built-in header — not twice.
+        assert_eq!(out.matches(" now ").count(), 1, "got {out}");
+    }
+
+    /// A free-text value would otherwise emit a link whose spaces end the
+    /// URL early and whose parens close it in the wrong place.
+    #[test]
+    fn a_linked_value_is_percent_encoded_in_the_url() {
+        let mut config = cfg();
+        config.fields.insert(
+            "owner".to_string(),
+            FieldSpec {
+                kind: Some(FieldKind::String),
+                column: Some("Owner".into()),
+                link: Some("https://example.test/u/{}".into()),
+                ..FieldSpec::default()
+            },
+        );
+        let mut f = feat("f-a", Status::Todo, "now", "v0.2.x");
+        f.frontmatter.extra.insert(
+            "owner".to_string(),
+            toml::Value::String("Jane Doe (ops)".into()),
+        );
+        let out = render(&[f], &config, &[]);
+        assert!(
+            out.contains("[Jane Doe (ops)](https://example.test/u/Jane%20Doe%20%28ops%29)"),
+            "got {out}"
+        );
+    }
+
+    #[test]
+    fn percent_encode_keeps_path_shape_and_escapes_the_rest() {
+        assert_eq!(percent_encode("42"), "42");
+        assert_eq!(percent_encode("a/b-c_d.e~f"), "a/b-c_d.e~f");
+        assert_eq!(percent_encode("a b"), "a%20b");
+        assert_eq!(percent_encode("(x)"), "%28x%29");
+        assert_eq!(percent_encode("a|b"), "a%7Cb");
+        // Multi-byte input encodes per byte, as a URL must.
+        assert_eq!(percent_encode("é"), "%C3%A9");
+    }
+
+    #[test]
+    fn link_text_escapes_brackets_that_would_close_it_early() {
+        assert_eq!(escape_link_text("a[b]c"), r"a\[b\]c");
+        assert_eq!(escape_link_text("plain"), "plain");
     }
 
     #[test]

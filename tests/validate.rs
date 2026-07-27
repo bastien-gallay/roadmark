@@ -299,6 +299,27 @@ fn a_project_declared_field_is_required_shape_checked_and_rendered() {
         report.to_text()
     );
 
+    // A table has no cell rendering — it would be stringified back to its
+    // own TOML source and dropped into the catalog verbatim.
+    std::fs::write(
+        features.join("f-live.md"),
+        feature_src(
+            "F-live",
+            "horizon = \"next\"\ntracked = { number = 42 }\n",
+            "Live.\n",
+        ),
+    )
+    .unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .schema_errors
+            .iter()
+            .any(|e| e.message.contains("`tracked` is a table")),
+        "got:\n{}",
+        report.to_text()
+    );
+
     // A key nothing declares: the guarantee `deny_unknown_fields` gave.
     std::fs::write(
         features.join("f-live.md"),
@@ -316,6 +337,71 @@ fn a_project_declared_field_is_required_shape_checked_and_rendered() {
     );
     // …and `generate` refuses it outright, not just `validate`.
     assert!(roadmark::load_features(&root, &config).is_err());
+}
+
+/// Narrative sections are where cross-feature prose lives, so a link to a
+/// feature is *likelier* there than in a feature body. `rename` must
+/// rewrite them and `validate` must scan them — otherwise a rename leaves
+/// a dead link that anchor drift can't see (it compares `<a id>` tags,
+/// and the regen embeds the same broken link the file has).
+#[test]
+fn a_feature_link_inside_a_section_is_renamed_and_checked() {
+    let root = unique_tmp("section-refs");
+    let features = root.join("features");
+    std::fs::create_dir_all(&features).unwrap();
+    std::fs::write(
+        root.join("config.toml"),
+        format!("sections = [{{ file = \"notes.md\", slot = \"after-catalog\" }}]\n{CONFIG_WITHOUT_HORIZON}"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-old](#f-old).\n",
+    )
+    .unwrap();
+    std::fs::write(
+        features.join("f-old.md"),
+        feature_src("F-old", "", "Old.\n"),
+    )
+    .unwrap();
+
+    // A link to a feature that doesn't exist is a hard error wherever it
+    // is written — including in prose.
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-ghost](#f-ghost).\n",
+    )
+    .unwrap();
+    let tmp_md = unique_tmp("section-refs-md");
+    std::fs::create_dir_all(&tmp_md).unwrap();
+    let roadmap_md = tmp_md.join("ROADMAP.md");
+    std::fs::write(&roadmap_md, "").unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report
+            .dangling_links
+            .iter()
+            .any(|r| r.reference.contains("f-ghost") && r.path.ends_with("notes.md")),
+        "got:\n{}",
+        report.to_text()
+    );
+
+    // …and `rename` carries the section along, so a live link stays live.
+    std::fs::write(
+        root.join("notes.md"),
+        "Crowned this slice: [F-old](#f-old).\n",
+    )
+    .unwrap();
+    let outcome = roadmark::rename::rename(&root, "f-old", "f-new", false).unwrap();
+    assert_eq!(outcome.rewritten.len(), 2, "{:?}", outcome.rewritten);
+    let notes = std::fs::read_to_string(root.join("notes.md")).unwrap();
+    assert_eq!(notes, "Crowned this slice: [F-new](#f-new).\n");
+    let report = roadmark::validate::validate(&root, &roadmap_md, false).unwrap();
+    assert!(
+        report.dangling_links.is_empty(),
+        "got:\n{}",
+        report.to_text()
+    );
 }
 
 /// #21: a declared narrative section that isn't there is a hard error,

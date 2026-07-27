@@ -25,6 +25,12 @@ and this project adheres to
   column. There is deliberately no `pattern` — roadmark carries no regex
   dependency and a half-regex would be worse than none.
   ([#22](https://github.com/bastien-gallay/roadmark/issues/22))
+- **`rename` and `validate` now cover narrative sections.** A
+  `[F-old](#f-old)` link written in a declared section is rewritten by
+  `rename` and checked by `validate`, on the same terms as a feature
+  body. Sections are where cross-feature prose lives, so they are the
+  likeliest home for a link to a feature — and a dead one there is
+  invisible to anchor drift, which compares `<a id>` tags only.
 - **`required_when` accepts a list.** `{ horizon = ["now", "next"] }`
   fires when the field holds either; multiple keys are still ANDed. The
   scalar form is unchanged and means the same as a one-element list.
