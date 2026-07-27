@@ -1,10 +1,17 @@
 name: CI
 
+# `pull_request` carries no `branches:` filter on purpose. AGENTS.md
+# prescribes *stacking* branches when work runs in parallel — rebase the
+# second on the first and retarget its base — and a `branches: [main]`
+# filter gives exactly those PRs no CI at all, leaving the one shape the
+# repo asks for as the one shape nobody checks. A PR based on another
+# branch is where a merged-tree incompatibility shows up first, so it is
+# the last place to skip the suite. `push` stays pinned to `main`: that
+# run is the baseline on record, not a per-branch check.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 # Cancel superseded PR runs; never cancel a push→main run (baseline on record).
