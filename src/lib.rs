@@ -228,7 +228,9 @@ pub struct Shipped {
 
 /// `.roadmap/config.toml` contents.
 ///
-/// `deny_unknown_fields` for the same reason [`Frontmatter`] carries it,
+/// `deny_unknown_fields` for the reason [`Frontmatter`] *used* to carry it
+/// — the guard there now lives in [`check_declared_fields`], because
+/// project-declared fields need `serde(flatten)`. Here the attribute stays,
 /// and with a sharper edge: every key here is optional, so a typo has no
 /// shape to fail on and would read as "the user didn't want that". TOML
 /// makes it worse — a top-level key written *below* a `[fields.x]` table

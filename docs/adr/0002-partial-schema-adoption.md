@@ -82,6 +82,16 @@ ADR-0001 forbids.
   (`horizen = "next"`) stays a parse error instead of silently reading as
   "no horizon" and dropping the feature to the end of its bucket.
 
+  > **Superseded 2026-07-27 — the mitigation moved, the guarantee did
+  > not.** `Frontmatter` no longer carries `#[serde(deny_unknown_fields)]`.
+  > Project-declared fields (#22) require `#[serde(flatten)]`, which serde
+  > cannot combine with it. The typo is now caught one layer out by
+  > `check_declared_fields`, which reads the config and can name the
+  > declaration that would make the key legal — so a mistyped `horizen`
+  > still fails `generate` and is still a `validate` schema error. The
+  > reasoning above stands; only the mechanism named in it is out of date.
+  > `Config` and `FieldSpec` *do* carry the attribute, and should.
+
 ## Alternatives considered
 
 | # | Option | Verdict | Why |
