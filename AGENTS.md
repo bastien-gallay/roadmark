@@ -166,6 +166,18 @@ Subcommand modules follow the same split:
   spans every feature, not each section's rows: a per-section probe
   would let a column appear and vanish down the page.
 
+- **Replacing a validation rule: enumerate what the old one covered
+  before you delete it.** A check usually guards more than the case that
+  motivated it. Removing the "unknown `[fields.X]`" config check — right,
+  because #22 made such a name a *declaration* — silently legalised
+  `[fields.status]`, `[fields.id]`, `[fields.target]`,
+  `[fields.shipped]` and `[fields.shipped_order]`. Those parse into named
+  struct fields, so they never reach `Frontmatter::extra` and never answer
+  `field_values`: the declaration constrained nothing while making *every*
+  feature report "`status` is required". The replacement check covered the
+  motivating case and none of the collateral. Hence
+  `Frontmatter::RESERVED_FIELD_NAMES`, and hence this note.
+
 ## Conventions
 
 - Tests that need a scratch dir use the `unique_tmp` pattern
