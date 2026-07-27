@@ -36,7 +36,8 @@ and this project adheres to
   not lint the artifact — and there was nothing to edit to fix it, since
   the file is regenerated. The only knob, `source_note`, *appended* to
   that line and could only make it worse; it now wraps onto its own
-  lines too. Nothing `render` emits on its own exceeds 80 columns.
+  lines too. Nothing `render` emits on its own exceeds 80 columns —
+  verbatim author text aside, which is the project's to wrap.
 - **Code spans survive into the catalog `Summary` (#59).** Backticks were
   stripped from the cell and kept in `## Details`, so the same sentence
   rendered two ways in one document and the catalog — the part most
@@ -45,8 +46,12 @@ and this project adheres to
   running prose. The cell now keeps markup that carries meaning and drops
   markup that carries decoration: code spans stay, emphasis goes, and a
   link is folded to its text because the row already links to the
-  feature's anchor. A span cut by the width truncation is closed, so an
-  unbalanced backtick can never swallow the rest of the row.
+  feature's anchor. A span's *contents* are passed through untouched: a
+  cell printing `` `__init__` `` as `` `init` `` would be worse than one
+  printing `init`, because the backticks claim the mangled text is the
+  symbol. A span the width truncation cut in half is dropped, opener
+  included — but a backtick the author left unmatched in the source is
+  prose, and stays.
 - **The catalog `Summary` is the body's first *paragraph*, not its first
   line (#55).** An author wrapping that sentence — as an 80-column
   markdown house style requires — lost everything after the first line,

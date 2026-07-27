@@ -183,8 +183,10 @@ Subcommand modules follow the same split:
   the tool rather than chosen by the project (#54) — the banner was 86
   columns and there was nothing to edit, since the file is regenerated.
   Table rows are exempt (markdownlint's `tables: false` is the standard
-  answer) and so is verbatim author text: a long body line is the
-  project's own choice. There is a per-line assertion in
+  answer) and so is verbatim author text: a long body line — or a
+  `source_note` holding a URL longer than the budget, which `wrap_words`
+  overflows rather than breaking mid-token — is the project's own choice,
+  and one it can fix in its own source. There is a per-line assertion in
   `render_uses_title_and_source_note`; extend it rather than working
   around it, and wrap with `wrap_words` when a new emitted line can grow.
 

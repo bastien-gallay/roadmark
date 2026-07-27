@@ -607,24 +607,93 @@ const SUMMARY_MAX_CHARS: usize = 120;
 fn summary(body: &str) -> String {
     let paragraph = first_paragraph(body);
     let cleaned = clean_inline_markdown(&paragraph);
-    close_dangling_code_span(&truncate_on_word_boundary(&cleaned, SUMMARY_MAX_CHARS))
+    let truncated = truncate_on_word_boundary(&cleaned, SUMMARY_MAX_CHARS);
+    drop_partial_code_span(&truncated, &cleaned)
 }
 
-/// Close a code span the truncation cut in half.
+/// Drop a code span the truncation cut in half, opener included.
 ///
-/// Now that backticks survive into the cell, a summary long enough to be
-/// truncated mid-span would otherwise emit an unbalanced `` ` `` — and an
-/// unclosed span swallows the rest of the row, including the `|` that ends
-/// the cell. Counting is enough: the span is opened and closed by the same
-/// character, so an odd count is exactly one open span.
-fn close_dangling_code_span(cell: &str) -> String {
-    if cell.chars().filter(|c| *c == '`').count() % 2 == 0 {
+/// Nothing catastrophic happens if one survives — an unmatched backtick run
+/// renders literally in CommonMark, and `escape_cell` has already escaped
+/// every `|`, so the row cannot break. It just reads as a stray backtick
+/// where the author wrote a symbol. Cutting back to before the opener costs
+/// a word the ellipsis was already announcing as lost.
+///
+/// Which is exactly why this asks `full` rather than trusting the prefix: a
+/// backtick left open in the *source* sentence is prose the author wrote —
+/// "the ` character" — and dropping the rest of the line over it would
+/// delete text to fix nothing. Only an opener that closes in `full` and not
+/// in the prefix was cut by the truncation.
+///
+/// The opener is found by scanning for spans, never by counting backticks:
+/// a ``` `` ```-delimited span exists precisely to *contain* one, so parity
+/// calls perfectly balanced text dangling.
+fn drop_partial_code_span(cell: &str, full: &str) -> String {
+    let Some(open) = code_span_scan(cell).1 else {
+        return cell.to_string();
+    };
+    if !code_span_scan(full)
+        .0
+        .iter()
+        .any(|(start, _)| *start == open)
+    {
         return cell.to_string();
     }
-    match cell.strip_suffix(" …") {
-        Some(head) => format!("{head}` …"),
-        None => format!("{cell}`"),
+    let head = cell[..open].trim_end();
+    if cell.ends_with(" …") {
+        format!("{head} …")
+    } else {
+        head.to_string()
     }
+}
+
+/// Split a line into code-span ranges (delimiters included) plus the offset
+/// of the first opener that never closed.
+///
+/// CommonMark's rule, and the reason this is not a backtick count: a run of
+/// N backticks opens a span that ends at the next run of **exactly** N. A
+/// run that never finds its match is literal text, and scanning continues
+/// past it — a later pair of a different length is still a span.
+fn code_span_scan(line: &str) -> (Vec<(usize, usize)>, Option<usize>) {
+    let bytes = line.as_bytes();
+    let mut spans = Vec::new();
+    let mut unclosed = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' {
+            i += 1;
+            continue;
+        }
+        let open = i;
+        while i < bytes.len() && bytes[i] == b'`' {
+            i += 1;
+        }
+        let width = i - open;
+        let mut j = i;
+        let mut close = None;
+        while j < bytes.len() {
+            if bytes[j] != b'`' {
+                j += 1;
+                continue;
+            }
+            let run = j;
+            while j < bytes.len() && bytes[j] == b'`' {
+                j += 1;
+            }
+            if j - run == width {
+                close = Some(j);
+                break;
+            }
+        }
+        match close {
+            Some(end) => {
+                spans.push((open, end));
+                i = end;
+            },
+            None => unclosed = unclosed.or(Some(open)),
+        }
+    }
+    (spans, unclosed)
 }
 
 /// The first non-blank run of lines, joined with single spaces.
@@ -642,12 +711,37 @@ fn first_paragraph(body: &str) -> String {
 }
 
 /// Fold a single line down to what a catalog cell should carry: `[text](url)`
-/// → `text`, drop `*`/`_` **emphasis delimiters** while keeping them intraword
-/// (so `lint_str` / `MAX_SEGMENT_WORDS` identifiers survive), and collapse runs
-/// of whitespace to single spaces (trimming ends). Code spans are left alone —
-/// see [`summary`] for why they are the exception.
+/// → `text`, drop `*`/`_` **emphasis delimiters**, and collapse runs of
+/// whitespace to single spaces (trimming ends).
+///
+/// **Code spans are passed through untouched**, contents included, which is
+/// the whole point of keeping them (#59): a cell that prints `` `__init__` ``
+/// as `` `init` `` is worse than one printing `init`, because the backticks
+/// claim the mangled text is a verbatim symbol. Masking spans before the
+/// emphasis and link passes is the same shape `validate` uses to keep its
+/// cross-reference scan out of code.
 fn clean_inline_markdown(line: &str) -> String {
-    let chars: Vec<char> = strip_inline_links(line).chars().collect();
+    let (spans, _) = code_span_scan(line);
+    let mut out = String::with_capacity(line.len());
+    let mut cursor = 0;
+    for (open, close) in spans {
+        out.push_str(&clean_prose(&line[cursor..open]));
+        out.push_str(&line[open..close]);
+        cursor = close;
+    }
+    out.push_str(&clean_prose(&line[cursor..]));
+    out.trim().to_string()
+}
+
+/// The emphasis and link passes plus whitespace collapsing, for text known
+/// to sit outside a code span.
+///
+/// The collapse happens here, not on the assembled line, so a span's own
+/// spacing is preserved along with its contents. A single leading/trailing
+/// space survives the collapse: it is the boundary between prose and the
+/// span next to it, and eating it would glue the two together.
+fn clean_prose(text: &str) -> String {
+    let chars: Vec<char> = strip_inline_links(text).chars().collect();
     let mut out = String::with_capacity(chars.len());
     for (i, &c) in chars.iter().enumerate() {
         match c {
@@ -661,7 +755,23 @@ fn clean_inline_markdown(line: &str) -> String {
             _ => out.push(c),
         }
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    let (lead, trail) = (
+        out.starts_with(char::is_whitespace),
+        out.ends_with(char::is_whitespace),
+    );
+    let core = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    if core.is_empty() {
+        return if lead || trail {
+            " ".to_string()
+        } else {
+            String::new()
+        };
+    }
+    format!(
+        "{}{core}{}",
+        if lead { " " } else { "" },
+        if trail { " " } else { "" }
+    )
 }
 
 /// Replace `[text](url)` spans with their `text`, leaving everything else
@@ -1735,21 +1845,48 @@ type = \"feature\"\n";
         assert_eq!(s, "Migrate `.roadmap/` with bold and em and a F22 link.");
     }
 
-    /// Truncation must not leave a span open: an unclosed backtick swallows
-    /// the rest of the row, including the `|` that ends the cell.
+    /// A span the truncation cut in half is dropped, opener included — the
+    /// ellipsis already announces that something was lost.
     #[test]
-    fn a_code_span_cut_by_the_truncation_is_closed() {
+    fn a_code_span_cut_by_the_truncation_is_dropped() {
         let body = format!(
             "{} `an::identifier::cut::in::half",
             "padding word ".repeat(12)
         );
         let s = summary(&body);
         assert!(s.ends_with(" …"), "got {s:?}");
+        assert!(!s.contains('`'), "partial span kept: {s:?}");
+    }
+
+    /// The ways the first cut of #59 mangled the very text it claimed to
+    /// preserve. Each is a real body shape, none is hypothetical.
+    #[test]
+    fn code_span_contents_are_never_touched() {
+        // Emphasis stripping ran *inside* the span, turning `__init__` into
+        // `init` — and the surviving backticks then claimed the mangled
+        // text was the verbatim symbol. Worse than the plain prose before.
         assert_eq!(
-            s.chars().filter(|c| *c == '`').count() % 2,
-            0,
-            "unbalanced code span: {s:?}"
+            summary("Handles `__init__` and `**kwargs` and `*args` correctly."),
+            "Handles `__init__` and `**kwargs` and `*args` correctly."
         );
+        // Link folding inside a span, same shape.
+        assert_eq!(
+            summary("See `[a](b)` inside a span."),
+            "See `[a](b)` inside a span."
+        );
+        // …while outside one, both passes still apply.
+        assert_eq!(summary("See [a](b) and *this*."), "See a and this.");
+    }
+
+    /// A lone backtick is prose, and a ``` `` ```-delimited span exists
+    /// precisely to contain one. Counting backticks calls both "dangling"
+    /// and corrupts them; scanning for spans does not.
+    #[test]
+    fn an_unmatched_or_doubled_backtick_survives_untouched() {
+        let prose = "The ` character opens a code span in markdown prose.";
+        assert_eq!(summary(prose), prose);
+        let nested = "Use ``a ` b`` for a nested span.";
+        assert_eq!(summary(nested), nested);
     }
 
     #[test]
