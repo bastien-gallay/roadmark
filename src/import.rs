@@ -6,9 +6,16 @@
 //! hand-transcription of a *nearly* mechanical task is exactly where
 //! silent mistakes come from.
 //!
-//! The split is deliberate and honest about its limits. What a table can
-//! tell us — id, status, horizon, the summary prose, the areas, and the
-//! bucket when the document is organised by headings — is written.
+//! Two source shapes are read. A **table** gives id, status, horizon, the
+//! summary prose, the areas, and the bucket when the document is organised
+//! by headings. **Checkbox bullets** — `- [x] `F-thing` — prose…` under
+//! bucket headings — give the same things by position instead of by
+//! header, and are read only when the document holds no feature table
+//! (see [`plan_import`]). The bullet form is the poorer source on paper
+//! and the richer one in practice: it has no columns, but its body is
+//! paragraphs rather than one cell, which is what `## Details` wants.
+//!
+//! The split is deliberate and honest about its limits.
 //!
 //! What it cannot divides again, along a line the schema draws rather than
 //! this module. `class` and `effort` are omissible, so they are written
@@ -205,7 +212,37 @@ pub fn import(
 
 /// Turn a hand-written roadmap into a plan. Pure: no filesystem, so the
 /// mapping is testable on a string.
+///
+/// Tables first, checkbox bullets only if the document had no feature table
+/// (#57). The fallback is ordered, not merged: a document that states its
+/// features in a table may still hold bullet checklists — release chores, a
+/// definition of done — and reading those as features would manufacture
+/// rows nobody wrote. Only a document with no table at all is unambiguous.
 pub fn plan_import(markdown: &str, options: &ImportOptions) -> Result<ImportPlan> {
+    let plan = scan(markdown, options, BulletMode::Ignore);
+    if !plan.features.is_empty() {
+        return Ok(plan);
+    }
+    let plan = scan(markdown, options, BulletMode::Read);
+    if plan.features.is_empty() {
+        bail!(
+            "no importable features found — expected a markdown table with a header row \
+             and at least one of an `ID` or `Summary` column (use `--map field=Header` \
+             if yours are named differently), or `- [ ]` / `- [x]` checkbox bullets"
+        );
+    }
+    Ok(plan)
+}
+
+/// Whether the scan reads `- [x]` bullets as features or leaves them to
+/// leftovers. See [`plan_import`] for why this is a second pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BulletMode {
+    Ignore,
+    Read,
+}
+
+fn scan(markdown: &str, options: &ImportOptions, bullets: BulletMode) -> ImportPlan {
     let mut plan = ImportPlan::default();
     let mut leftovers = String::new();
     let mut heading: Option<String> = None;
@@ -244,6 +281,13 @@ pub fn plan_import(markdown: &str, options: &ImportOptions) -> Result<ImportPlan
                 i = next;
             },
             None => {
+                if bullets == BulletMode::Read {
+                    if let Some((entry, next)) = take_bullet(&lines, i) {
+                        import_bullet(&entry, heading.as_deref(), &mut seen_slugs, &mut plan);
+                        i = next;
+                        continue;
+                    }
+                }
                 leftovers.push_str(line);
                 leftovers.push('\n');
                 i += 1;
@@ -251,15 +295,8 @@ pub fn plan_import(markdown: &str, options: &ImportOptions) -> Result<ImportPlan
         }
     }
 
-    if plan.features.is_empty() {
-        bail!(
-            "no importable table found — expected a markdown table with a header row \
-             and at least one of an `ID` or `Summary` column (use `--map field=Header` \
-             if yours are named differently)"
-        );
-    }
     plan.leftovers = tidy_leftovers(&leftovers);
-    Ok(plan)
+    plan
 }
 
 /// `## Foo` → `Foo`. Only `##`/`###`, because `#` is the document title
@@ -463,6 +500,271 @@ fn import_table(
     true
 }
 
+/// A checkbox bullet read as a row. Position replaces the header
+/// inference a table needs: the checkbox is the status, the backticked
+/// token is the id, the enclosing heading is the target, the rest is body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BulletEntry {
+    status: &'static str,
+    /// The backticked token, if the bullet carried one.
+    raw_id: String,
+    /// Lead paragraph: the bullet's own prose, wrapped lines rejoined.
+    prose: String,
+    /// Nested bullets, verbatim and dedented — kept as prose in the parent
+    /// body rather than promoted to features of their own. roadmark has no
+    /// sub-features, so promotion invents ids the source never wrote; that
+    /// is a judgement call and belongs behind a flag, not in the default.
+    nested: Vec<String>,
+}
+
+/// A top-level `- [x] ` / `- [ ] ` bullet and everything indented under it.
+///
+/// The entry ends at the first blank line or unindented line, so a wrapped
+/// bullet keeps its continuation lines and the next bullet starts its own
+/// entry. Only unindented bullets start one — an indented checkbox is
+/// nested content of the bullet above it.
+fn take_bullet(lines: &[&str], start: usize) -> Option<(BulletEntry, usize)> {
+    let line = lines.get(start)?;
+    if line.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let (mark, head) = checkbox_at(line)?;
+
+    let mut prose = vec![head.trim().to_string()];
+    let mut nested: Vec<&str> = Vec::new();
+    let mut nested_indent = 0;
+    let mut i = start + 1;
+    while let Some(next) = lines.get(i) {
+        if next.trim().is_empty() || !next.starts_with(char::is_whitespace) {
+            break;
+        }
+        if nested.is_empty() && bullet_marker(next.trim_start()).is_none() {
+            prose.push(next.trim().to_string());
+        } else {
+            if nested.is_empty() {
+                nested_indent = next.len() - next.trim_start().len();
+            }
+            nested.push(next);
+        }
+        i += 1;
+    }
+
+    let prose = prose.join(" ").trim().to_string();
+    let (raw_id, prose) = take_backticked_id(&prose);
+    Some((
+        BulletEntry {
+            status: checkbox_status(mark),
+            raw_id,
+            prose,
+            nested: nested.iter().map(|l| dedent(l, nested_indent)).collect(),
+        },
+        i,
+    ))
+}
+
+/// `- [x] rest` → `('x', "rest")`. `-`, `*` and `+` all open a list item.
+fn checkbox_at(line: &str) -> Option<(char, &str)> {
+    let rest = bullet_marker(line.trim_start())?;
+    let mut chars = rest.chars();
+    if chars.next()? != '[' {
+        return None;
+    }
+    let mark = chars.next()?;
+    if chars.next()? != ']' {
+        return None;
+    }
+    let rest = &rest[2 + mark.len_utf8()..];
+    // The space after `]` is required: `[x]y` is not a task list item.
+    rest.strip_prefix(' ').map(|r| (mark, r))
+}
+
+/// The text after a `- ` / `* ` / `+ ` list marker, if the line opens one.
+fn bullet_marker(trimmed: &str) -> Option<&str> {
+    trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("+ "))
+}
+
+/// The glyph inside the checkbox. Anything unrecognised reads as `todo`,
+/// the same under-claiming default [`parse_status`] takes.
+fn checkbox_status(mark: char) -> &'static str {
+    match mark {
+        'x' | 'X' | '✓' => "done",
+        '~' | '/' | '>' => "wip",
+        '!' => "blocked",
+        _ => "todo",
+    }
+}
+
+/// Lift the first code span out of a bullet's prose: it is the id. Returns
+/// the token (empty when the bullet had none) and the prose without it,
+/// with the `—`/`–`/`-`/`:` that separated them dropped.
+fn take_backticked_id(prose: &str) -> (String, String) {
+    let Some(open) = prose.find('`') else {
+        return (String::new(), prose.to_string());
+    };
+    let after = &prose[open + 1..];
+    let Some(close) = after.find('`') else {
+        return (String::new(), prose.to_string());
+    };
+    let id = after[..close].trim().to_string();
+    let rest = after[close + 1..].trim_start();
+    let rest = rest
+        .strip_prefix('—')
+        .or_else(|| rest.strip_prefix('–'))
+        .or_else(|| rest.strip_prefix('-'))
+        .or_else(|| rest.strip_prefix(':'))
+        .unwrap_or(rest);
+    let body = format!("{}{}", &prose[..open], rest.trim_start());
+    (id, body.trim().to_string())
+}
+
+/// Drop up to `n` leading spaces, so a nested list keeps its *relative*
+/// indentation when it moves into a feature body.
+fn dedent(line: &str, n: usize) -> String {
+    let keep = line
+        .chars()
+        .take(n)
+        .take_while(|c| c.is_whitespace())
+        .count();
+    line[keep..].to_string()
+}
+
+/// Longest first sentence still worth having as a summary; past it the
+/// author wrote a paragraph, and [`crate::summary`]'s own truncation is the
+/// better bound.
+const MAX_SUMMARY_SENTENCE: usize = 200;
+
+/// Turn one bullet into a feature.
+///
+/// Same warnings as the table path, because the gap is the same: a bullet
+/// list states id, status and target and nothing else, so `type` and `area`
+/// are guesses the adopter is told about.
+fn import_bullet(
+    entry: &BulletEntry,
+    heading: Option<&str>,
+    seen_slugs: &mut BTreeMap<String, usize>,
+    plan: &mut ImportPlan,
+) {
+    if entry.raw_id.is_empty() && entry.prose.is_empty() {
+        return;
+    }
+    let slug = unique_slug(&derive_slug(&entry.raw_id, &entry.prose), seen_slugs);
+    let id = derive_id(&slug);
+    let target = heading.map(str::to_string);
+    if let Some(b) = &target {
+        if !plan.buckets.contains(b) {
+            plan.buckets.push(b.clone());
+        }
+    }
+    if entry.raw_id.is_empty() {
+        plan.warnings.push(format!(
+            "{slug}: no `id` in backticks — slug derived from the text, rename it if you had one"
+        ));
+    }
+    plan.warnings.push(format!(
+        "{slug}: a bullet list carries no area or type — wrote `{TODO_VALUE}` and assumed `feature`"
+    ));
+    plan.features.push(PlannedFeature {
+        contents: render_feature(
+            &id,
+            "feature",
+            &[TODO_VALUE.to_string()],
+            entry.status,
+            None,
+            target.as_deref(),
+            &bullet_body(entry),
+        ),
+        slug,
+        id,
+    });
+}
+
+/// The body a bullet becomes: first sentence, blank line, the rest.
+///
+/// The paragraph is the catalog Summary (#55), and a bullet's prose is one
+/// wrapped paragraph — so importing it whole would put the entire entry in
+/// the cell and let the width truncation cut it mid-thought. Splitting at
+/// the first sentence is what makes the bullet form, whose prose is its
+/// richness, produce a catalog that still scans. Nothing is lost: the rest
+/// of the paragraph and any nested list follow it in the body, and
+/// `## Details` renders all of it.
+fn bullet_body(entry: &BulletEntry) -> String {
+    let (summary, rest) = split_first_sentence(&entry.prose);
+    let mut paragraphs = vec![summary];
+    if !rest.is_empty() {
+        paragraphs.push(rest);
+    }
+    if !entry.nested.is_empty() {
+        paragraphs.push(entry.nested.join("\n"));
+    }
+    paragraphs.retain(|p| !p.trim().is_empty());
+    paragraphs.join("\n\n")
+}
+
+/// Tokens that end in `.` without ending a sentence.
+const ABBREVIATIONS: &[&str] = &[
+    "e.g", "i.e", "cf", "vs", "resp", "al", "fig", "no", "approx",
+];
+
+/// Shortest run of text that can plausibly be a whole sentence, in `char`s.
+const MIN_SENTENCE_CHARS: usize = 20;
+
+/// Split a paragraph after its first sentence, returning it and the rest.
+///
+/// Hand-rolled like every other scan here, and deliberately conservative:
+/// a terminator must be followed by whitespace or the end of the text, may
+/// carry closing brackets or quotes, must leave at least
+/// [`MIN_SENTENCE_CHARS`] behind it, and must not follow an abbreviation or
+/// a single-letter initial. When nothing qualifies — or the sentence runs
+/// past [`MAX_SUMMARY_SENTENCE`] — the whole paragraph is the first
+/// sentence, which degrades to the pre-#57 behaviour rather than cutting
+/// somewhere wrong.
+fn split_first_sentence(text: &str) -> (String, String) {
+    let chars: Vec<char> = text.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if !matches!(c, '.' | '!' | '?') {
+            continue;
+        }
+        let mut end = i + 1;
+        while matches!(chars.get(end), Some(')' | '"' | '\'' | '`' | ']' | '»')) {
+            end += 1;
+        }
+        let terminal = chars.get(end).is_none_or(|n| n.is_whitespace());
+        if !terminal || end < MIN_SENTENCE_CHARS {
+            continue;
+        }
+        if end > MAX_SUMMARY_SENTENCE {
+            break;
+        }
+        if ends_with_abbreviation(&chars[..i]) {
+            continue;
+        }
+        let head: String = chars[..end].iter().collect();
+        let tail: String = chars[end..].iter().collect();
+        return (head.trim().to_string(), tail.trim().to_string());
+    }
+    (text.trim().to_string(), String::new())
+}
+
+/// Whether the word ending at this point is an abbreviation or an initial —
+/// `e.g`, `Fig`, `J` in `J. Doe` — rather than the end of a sentence.
+fn ends_with_abbreviation(before: &[char]) -> bool {
+    let word: String = before
+        .iter()
+        .rev()
+        .take_while(|c| !c.is_whitespace())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let word = word
+        .trim_start_matches(['(', '"', '\'', '`', '['])
+        .to_lowercase();
+    word.chars().count() <= 1 || ABBREVIATIONS.contains(&word.as_str())
+}
+
 /// The catalog cell as prose: link syntax stripped to its text, so
 /// `[F-foo](#f-foo)` reads as `F-foo`.
 fn clean_cell(cell: &str) -> String {
@@ -584,7 +886,7 @@ fn render_feature(
     status: &str,
     horizon: Option<&str>,
     target: Option<&str>,
-    summary: &str,
+    body: &str,
 ) -> String {
     let mut out = String::with_capacity(512);
     out.push_str("+++\n");
@@ -610,7 +912,7 @@ fn render_feature(
         target.unwrap_or(TODO_VALUE)
     ));
     out.push_str("+++\n\n");
-    let body = summary.trim();
+    let body = body.trim();
     if body.is_empty() {
         out.push_str("<TODO: one-paragraph summary — imported row had none.>\n");
     } else {
@@ -838,6 +1140,106 @@ mod tests {
         // …and a malformed spec says what the shape is.
         let err = options.add_mapping("no-equals-sign").unwrap_err();
         assert!(format!("{err:#}").contains("field=Header"));
+    }
+
+    /// The shape a hand-written `ROADMAP.md` most often takes: checkbox
+    /// bullets under bucket headings, no table anywhere (#57).
+    #[test]
+    fn checkbox_bullets_import_when_the_document_has_no_table() {
+        let plan = plan(
+            "### Must\n\n\
+             - [x] `F-app-shell` — window, lifecycle, bounds (menu: deferred to M3 with\n  \
+             the keymap). The deferral left one visible gap on macOS.\n\
+             - [ ] `F-packaging-ci` — signed mac/win/linux builds + CI gate\n",
+        );
+        let slugs: Vec<&str> = plan.features.iter().map(|f| f.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["f-app-shell", "f-packaging-ci"]);
+        assert_eq!(plan.buckets, vec!["Must"]);
+
+        let shell = &plan.features[0].contents;
+        assert!(shell.contains("status = \"done\""), "{shell}");
+        assert!(shell.contains("target = [\"Must\"]"), "{shell}");
+        // The wrapped continuation line is part of the same sentence…
+        assert!(
+            shell.contains("deferred to M3 with the keymap)."),
+            "{shell}"
+        );
+        // …and the sentence after it is a paragraph of its own, so the
+        // catalog Summary is a summary rather than the whole entry.
+        assert!(
+            shell.contains(").\n\nThe deferral left one visible gap on macOS."),
+            "{shell}"
+        );
+        assert!(plan.features[1].contents.contains("status = \"todo\""));
+    }
+
+    /// A document that states its features in a table may still hold
+    /// checklists; reading those as features would invent rows.
+    #[test]
+    fn bullets_stay_prose_when_the_document_also_has_a_feature_table() {
+        let plan = plan(
+            "| ID | Summary |\n| --- | --- |\n| F-a | A. |\n\n\
+             ## Release checklist\n\n- [ ] tag the merge commit\n",
+        );
+        let slugs: Vec<&str> = plan.features.iter().map(|f| f.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["f-a"]);
+        assert!(
+            plan.leftovers.contains("- [ ] tag the merge commit"),
+            "{}",
+            plan.leftovers
+        );
+    }
+
+    /// roadmark has no sub-features, so a nested bullet stays prose in its
+    /// parent's body rather than becoming an id nobody wrote.
+    #[test]
+    fn a_nested_bullet_stays_in_its_parents_body() {
+        let plan = plan(
+            "- [ ] `F-parent` — the parent entry, stated in full.\n  \
+             - [ ] a sub-item\n    - [ ] deeper still\n",
+        );
+        assert_eq!(plan.features.len(), 1);
+        let body = &plan.features[0].contents;
+        assert!(body.contains("- [ ] a sub-item"), "{body}");
+        // Relative nesting survives the move into the body.
+        assert!(body.contains("\n  - [ ] deeper still"), "{body}");
+    }
+
+    #[test]
+    fn a_bullet_without_a_backticked_id_derives_one_and_says_so() {
+        let plan = plan("- [ ] Regions are now a contiguous partition of space.\n");
+        assert_eq!(plan.features[0].slug, "f-regions-are-now-a-contiguous");
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|w| w.contains("no `id` in backticks")));
+    }
+
+    #[test]
+    fn the_checkbox_glyph_is_the_status() {
+        assert_eq!(checkbox_status('x'), "done");
+        assert_eq!(checkbox_status('X'), "done");
+        assert_eq!(checkbox_status('~'), "wip");
+        assert_eq!(checkbox_status('!'), "blocked");
+        assert_eq!(checkbox_status(' '), "todo");
+        // `[x]y` is not a task list item — the space is required.
+        assert!(checkbox_at("- [x]nope").is_none());
+        assert_eq!(checkbox_at("* [ ] yes").unwrap(), (' ', "yes"));
+    }
+
+    #[test]
+    fn the_first_sentence_survives_abbreviations_and_versions() {
+        let (head, tail) = split_first_sentence(
+            "Ship the thing on v0.2.1, e.g. behind a flag. Then remove the flag.",
+        );
+        assert_eq!(head, "Ship the thing on v0.2.1, e.g. behind a flag.");
+        assert_eq!(tail, "Then remove the flag.");
+
+        // A paragraph with no sentence break stays whole — the width
+        // truncation in `render` is the right bound, not a wrong cut.
+        let (head, tail) = split_first_sentence("no terminator anywhere in here");
+        assert_eq!(head, "no terminator anywhere in here");
+        assert!(tail.is_empty());
     }
 
     #[test]

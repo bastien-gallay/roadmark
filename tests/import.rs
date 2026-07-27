@@ -90,6 +90,62 @@ fn an_imported_tree_generates_and_validates() {
     assert!(rendered.contains("| ✅ |"), "got:\n{rendered}");
 }
 
+/// The other shape a hand-written roadmap takes, and arguably the more
+/// common one: checkbox bullets under bucket headings, zero tables (#57).
+/// Same claim as above — the imported tree generates and validates.
+#[test]
+fn a_checkbox_bullet_roadmap_imports_generates_and_validates() {
+    let dir = unique_tmp("bullets");
+    let source = write_source(
+        &dir,
+        "# termherd — Roadmap\n\n\
+         Some preamble.\n\n\
+         ## Must\n\n\
+         - [x] `F-app-shell` — window, lifecycle, bounds (menu: deferred to M3 with\n  \
+         the keymap — no native menu API in iced). The deferral left one visible gap\n  \
+         on macOS: winit builds only the *application* menu.\n\
+         - [ ] `F-packaging-ci` — signed mac/win/linux builds + CI gate\n  \
+         - [ ] notarisation still open\n\n\
+         ## Should\n\n\
+         - [~] `F-keymap` — user-rebindable keys.\n",
+    );
+    let root = dir.join(".roadmap");
+
+    let outcome = roadmark::import::import(&root, &source, &options(&[]), false).unwrap();
+    assert_eq!(outcome.created.len(), 3, "{:?}", outcome.created);
+
+    let config = roadmark::load_config(&root).unwrap();
+    assert_eq!(config.versions, vec!["Must", "Should"]);
+    let mut features = roadmark::load_features(&root, &config).unwrap();
+    roadmark::sort_features(&mut features, &config);
+    let rendered = roadmark::render(&features, &config, &[]);
+    let roadmap_md = dir.join("OUT.md");
+    std::fs::write(&roadmap_md, &rendered).unwrap();
+    let report = roadmark::validate::validate(&root, &roadmap_md, true).unwrap();
+    assert!(!report.has_hard_errors(), "got:\n{}", report.to_text());
+
+    // The checkbox is the status and the heading is the bucket.
+    assert!(rendered.contains("| ✅ |"), "got:\n{rendered}");
+    assert!(rendered.contains("| 🚧 |"), "got:\n{rendered}");
+    // The catalog cell is the first sentence, not the whole entry: the
+    // second sentence is in the body but must not reach the row.
+    assert!(
+        rendered.contains("no native menu API in iced)."),
+        "got:\n{rendered}"
+    );
+    let catalog = rendered.split("## Details").next().unwrap();
+    assert!(
+        !catalog.contains("The deferral left"),
+        "second sentence leaked into the catalog:\n{catalog}"
+    );
+    // …and the details keep everything, nested bullet included.
+    assert!(rendered.contains("The deferral left"), "got:\n{rendered}");
+    assert!(
+        rendered.contains("- [ ] notarisation still open"),
+        "got:\n{rendered}"
+    );
+}
+
 /// The undecidable axes are commented out, and the mandatory ones carry a
 /// placeholder rather than a comment — commenting `type`/`area`/`target`
 /// would produce a file that doesn't parse, so `generate` would fail
@@ -194,12 +250,14 @@ fn unattributable_prose_is_kept() {
 }
 
 #[test]
-fn a_source_with_no_feature_table_fails_with_a_usable_message() {
+fn a_source_with_no_features_fails_with_a_usable_message() {
     let dir = unique_tmp("no-table");
     let source = write_source(&dir, "# Roadmap\n\nJust prose, no table.\n");
     let root = dir.join(".roadmap");
     let err = roadmark::import::import(&root, &source, &options(&[]), true).unwrap_err();
     let msg = format!("{err:#}");
-    assert!(msg.contains("no importable table"), "got: {msg}");
+    assert!(msg.contains("no importable features"), "got: {msg}");
     assert!(msg.contains("--map"), "got: {msg}");
+    // Both readable shapes are named, so the message says what to write.
+    assert!(msg.contains("checkbox bullets"), "got: {msg}");
 }

@@ -465,7 +465,25 @@ overrides any of them, repeatably. Derived: `id` (and the file slug),
 `target` — from a column, or from the enclosing `##` heading when the
 document is organised by buckets — and the body, from the Summary cell.
 
-What a table can't tell it splits along the line the schema draws:
+**No tables?** A roadmap written as checkbox bullets imports too — the
+shape most repos actually have:
+
+```markdown
+### Must
+
+- [x] `F-app-shell` — window, lifecycle, bounds. The menu is deferred to
+  M3 with the keymap.
+- [ ] `F-packaging-ci` — signed mac/win/linux builds + CI gate
+```
+
+Position replaces the header inference: the checkbox is the status
+(`x`/`~`/`!`/blank), the backticked token is the `id`, the enclosing
+heading is the `target`, and the rest — continuation lines and nested
+bullets included — is the body, whose **first sentence** becomes the
+catalog Summary. Bullets are read only when the document has no feature
+table, so a checklist next to a table of features stays a checklist.
+
+What neither shape can tell it splits along the line the schema draws:
 
 - `class` and `effort` are optional, so they're written **commented out**
   with their value set inline.
