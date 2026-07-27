@@ -87,6 +87,17 @@ Subcommand modules follow the same split:
   `ValidationReport` rather than bailing on the first parse error.
   Anchor drift is computed by regenerating in memory and diffing
   `<a id="…">` anchors against the on-disk `ROADMAP.md`.
+- **`src/import.rs`** — bootstraps a tree from a hand-written
+  `ROADMAP.md`. Same split as the rest: `plan_import` is
+  string-in/struct-out and never touches the filesystem, `import` is the
+  I/O half. The asymmetry in what it emits is load-bearing, not
+  stylistic: omissible axes (`class`, `effort`) are written **commented
+  out**, but `type`/`area`/`target` are mandatory frontmatter and get a
+  `<TODO>` placeholder instead — a comment there yields a file that
+  doesn't parse, so `generate` would fail before the adopter saw
+  anything. Keep that line where the schema draws it. It never
+  overwrites, and a table it can't read as features goes to leftovers
+  rather than being dropped.
 - **`src/rename.rs`** — moves the feature file, updates its `id` (taken
   from the file, not the filename), and rewrites cross-references in
   every feature body via whole-token replacement of the old id, its
