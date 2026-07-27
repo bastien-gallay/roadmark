@@ -4,6 +4,7 @@
 //! and snapshot the rendered output via `insta`.
 
 pub mod add;
+pub mod import;
 pub mod rename;
 pub mod validate;
 

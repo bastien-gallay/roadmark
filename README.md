@@ -90,6 +90,13 @@ roadmark generate -o ROADMAP.md   # compile features into ROADMAP.md
 roadmark validate                 # fail if the roadmap is inconsistent — run this in CI
 ```
 
+That last run exits 0 but warns twice: `add`'s scaffold leaves `<TODO>`
+in `area` and `target`, and `validate` names a placeholder nobody has
+replaced yet. Fill them in and it goes quiet.
+
+**Already have a roadmap?** Don't retype it — see
+[import](#import-an-existing-roadmap).
+
 `roadmark --root path/to/.roadmap generate` points at a non-default location.
 
 > **Use `-o`, not `>`.** `generate` still writes to stdout by default, so
@@ -422,6 +429,45 @@ there, that is a typo, and `validate` fails naming the path it resolved
 rather than reporting a clean run that checked nothing.
 
 ## Other commands
+
+### Import an existing roadmap
+
+You already have a `ROADMAP.md` — that's the premise. `import` does the
+mechanical half so you don't retype seventy rows:
+
+```sh
+roadmark import ROADMAP.md --dry-run              # report, change nothing
+roadmark import ROADMAP.md --map area=Direction   # write .roadmap/
+```
+
+It reads every markdown table that has an ID or Summary column. Headers
+are matched by name and by a short alias list; `--map field=Header`
+overrides any of them, repeatably. Derived: `id` (and the file slug),
+`status` (from the ☐/🚧/⛔/✅ glyph or the word), `horizon`, `area`,
+`target` — from a column, or from the enclosing `##` heading when the
+document is organised by buckets — and the body, from the Summary cell.
+
+What a table can't tell it splits along the line the schema draws:
+
+- `class` and `effort` are optional, so they're written **commented out**
+  with their value set inline.
+- `type`, `area` and `target` are **mandatory**, so a comment would
+  produce a file that doesn't parse. They get a `<TODO>` placeholder
+  instead, which `validate` names as a warning.
+
+That combination is the point: the imported tree **generates
+immediately** — you see your roadmap — and `validate` lists exactly what
+is still undecided without refusing the tree over it. To turn those into
+a gate, uncomment the matching `[fields.*]` block in the generated
+`config.toml` and give it a `required_when`.
+
+It never overwrites: existing feature files are skipped and reported, and
+`config.toml` is written only when absent. Prose it can't attribute to a
+row goes to `.roadmap/import-leftovers.md` rather than being dropped —
+some of it is a good candidate for a [`sections`](#hand-written-narrative)
+entry.
+
+### Rename
 
 ```sh
 roadmark rename f-old f-new      # move a feature file, rewriting every cross-link

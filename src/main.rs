@@ -4,6 +4,7 @@
 //! - `generate`: render `ROADMAP.md` to stdout, or atomically to `--output`
 //! - `validate`: schema, slug uniqueness, anchor drift
 //! - `add`: scaffold a new feature file
+//! - `import`: bootstrap `.roadmap/` from a hand-written ROADMAP.md
 //! - `rename`: rename a slug, moving the file and rewriting cross-links
 
 use anyhow::{Context, Result};
@@ -49,6 +50,19 @@ enum Command {
         /// empty the destination before roadmark runs.
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+    /// Bootstrap `.roadmap/` from an existing hand-written ROADMAP.md.
+    Import {
+        /// The hand-written roadmap to read.
+        source: PathBuf,
+        /// Report what would be written and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Map one of roadmark's fields onto a source column header,
+        /// e.g. `--map area=Direction`. Repeatable. Without it, headers
+        /// are matched by name and by a short alias list.
+        #[arg(long, value_name = "FIELD=HEADER")]
+        map: Vec<String>,
     },
     /// Validate the `.roadmap/` source: schema, slug uniqueness, anchor drift.
     Validate {
@@ -108,6 +122,11 @@ fn run() -> Result<ExitCode> {
             slug,
             allow_legacy_numeric,
         } => add_cmd(&cli.root, &slug, allow_legacy_numeric),
+        Command::Import {
+            source,
+            dry_run,
+            map,
+        } => import_cmd(&cli.root, &source, dry_run, &map),
         Command::Rename {
             from,
             to,
@@ -158,6 +177,61 @@ fn add_cmd(root: &std::path::Path, slug: &str, allow_legacy_numeric: bool) -> Re
         warn_legacy_numeric(slug, "features");
     }
     println!("created {}", outcome.path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `import` reports rather than narrates: counts, then the paths, then
+/// what a human still owes the tree. The closing hint is the point of the
+/// command — the import lands you on a *failing* `validate`, and saying so
+/// is what stops that failure reading as a bug.
+fn import_cmd(
+    root: &std::path::Path,
+    source: &std::path::Path,
+    dry_run: bool,
+    map: &[String],
+) -> Result<ExitCode> {
+    let mut options = roadmark::import::ImportOptions::default();
+    for spec in map {
+        options.add_mapping(spec)?;
+    }
+    let outcome = roadmark::import::import(root, source, &options, dry_run)?;
+    let verb = if outcome.dry_run {
+        "would create"
+    } else {
+        "created"
+    };
+    println!("{verb} {} feature file(s)", outcome.created.len());
+    for path in &outcome.created {
+        println!("  {}", path.display());
+    }
+    if !outcome.skipped.is_empty() {
+        println!("skipped {} existing file(s):", outcome.skipped.len());
+        for path in &outcome.skipped {
+            println!("  {}", path.display());
+        }
+    }
+    for (label, path) in [
+        ("config", &outcome.config_written),
+        ("leftover prose", &outcome.leftovers_written),
+    ] {
+        if let Some(path) = path {
+            println!("{verb} {label}: {}", path.display());
+        }
+    }
+    for warning in &outcome.warnings {
+        eprintln!("warning: {warning}");
+    }
+    if !outcome.dry_run {
+        // Say what actually happens next. The imported tree *generates* —
+        // that is deliberate, so the adopter can see their roadmap
+        // immediately — and `validate` names what is still owed rather
+        // than refusing the tree over it.
+        eprintln!(
+            "hint: the tree generates as-is. `roadmark validate` will name every \
+             `<TODO>` left to decide; uncomment a `[fields.*]` block in config.toml \
+             (with its `required_when`) to turn those into a gate."
+        );
+    }
     Ok(ExitCode::SUCCESS)
 }
 

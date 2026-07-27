@@ -10,6 +10,32 @@ and this project adheres to
 
 ### Added
 
+- **`roadmark import <file>`: bootstrap `.roadmap/` from a hand-written
+  roadmap.** Every candidate adopter already has a `ROADMAP.md` — that is
+  the premise of the pitch — and the tool used to ask them to retype it.
+  `import` reads every markdown table carrying an ID or Summary column
+  and derives `id`, `status` (glyph or word), `horizon`, `area`,
+  `target` (from a column, or the enclosing `##` heading when the
+  document is bucketed) and the body. Headers are matched by name and a
+  short alias list; `--map field=Header` overrides, repeatably.
+  `--dry-run` reports and writes nothing.
+  What the table can't say splits along the line the schema draws:
+  `class` and `effort` are optional and are written commented out with
+  their value set inline, while `type`, `area` and `target` are
+  mandatory — a comment there produces a file that doesn't parse — so
+  they get a `<TODO>` placeholder. The result generates immediately and
+  `validate` names what is undecided rather than refusing the tree,
+  which is what makes the first run useful instead of a wall. Nothing is
+  overwritten: existing feature files are skipped and reported,
+  `config.toml` is written only when absent, and unattributable prose
+  goes to `import-leftovers.md` rather than being dropped.
+  ([#24](https://github.com/bastien-gallay/roadmark/issues/24))
+- **`validate` warns about `<TODO>` placeholders.** `add` and `import`
+  both scaffold them, and left alone they ship into the catalog as if
+  someone had decided them. A warning, not an error — scaffolding first
+  and filling in second is the normal shape of adoption. The quick start
+  now exits 0 with two warnings until the scaffold is filled in.
+
 - **Project-declared fields.** A `[fields.X]` naming something roadmark
   doesn't model now declares a field of the project's own — the schema
   had no home for a tracking issue, an owner, a spec URL, so they lived
