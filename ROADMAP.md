@@ -18,6 +18,7 @@
 | [F-partial-schema](#f-partial-schema) | feature | enabler | M | core | shipped | ✅ | v0.6 | A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes … |
 | [F-atomic-output](#f-atomic-output) | fix | major | S | cli, core | now | 🚧 | v0.7 | generate -o/--output <path> writes the roadmap through a temp file and a rename, so a failed run leaves the committed … |
 | [F-bucket-sections](#f-bucket-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | split_by_bucket = true emits one ##-headed catalog per bucket instead of a single flat table, in the order versions … |
+| [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | now | 🚧 | v0.7 | sections declares hand-written markdown files and where they land in the generated document, injected verbatim. |
 | [F-validate-refs](#f-validate-refs) | feature | enabler | M | core, cli | now | 🚧 | v0.7 | validate checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs roadmark validate, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | roadmark init scaffolds a starter .roadmap/ tree (config.toml with commented field declarations plus one example … |
@@ -131,6 +132,16 @@ stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existin
 The section carries the bucket, so the bucket column drops out inside it — the same rule that drops a column no feature holds. It drops only where the heading carries the *whole* value, though: a multi-valued `target` keeps its cell because only the first entry picks the section, and an undeclared target keeps its because no heading can carry it. Empty buckets emit no heading, untargeted features collect in a trailing section, and `## Details` stays flat and stays one list because it is anchor-addressed and the catalog links into it.
 
 Opt-in, because it rewrites every line of the generated file. `bucket_label` and `unbucketed_label` come with it: `versions` is a bucket order, and the vocabulary belongs to the project rather than to this binary.
+
+### <a id="f-narrative-sections"></a>F-narrative-sections
+
+`sections` declares hand-written markdown files and where they land in the generated document, injected verbatim.
+
+The generated document had four fixed parts and no room for prose that belongs to no single feature: dated triage notes, why *this* slice and not another, horizon commentary, which items are crowned and in what order. That prose is *about* the relationships between features, so no feature body holds it — and moving it to a separate file means neither file is the roadmap any more. Adopting roadmark used to mean keeping the inventory and dropping the reasoning, which is the half a reader trusts most.
+
+Three slots, named for the document's structural landmarks rather than for individual sections, so they keep meaning when [F-bucket-sections](#f-bucket-sections) turns the catalog into several tables. Verbatim means verbatim: no parsing, no reformatting, only the framing blank lines normalised so the output does not depend on how an editor saved the file.
+
+A declared file that is missing is a hard error — `generate` refuses outright, so a passing `validate` would promise a document the next command will not produce. Paths stay inside the roadmap root: a document assembled partly from outside the source of truth cannot be reproduced from a checkout of it.
 
 ### <a id="f-validate-refs"></a>F-validate-refs
 

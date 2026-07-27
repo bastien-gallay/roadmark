@@ -164,7 +164,16 @@ pub struct Shipped {
 }
 
 /// `.roadmap/config.toml` contents.
+///
+/// `deny_unknown_fields` for the same reason [`Frontmatter`] carries it,
+/// and with a sharper edge: every key here is optional, so a typo has no
+/// shape to fail on and would read as "the user didn't want that". TOML
+/// makes it worse — a top-level key written *below* a `[fields.x]` table
+/// belongs to that table, so a misplaced `sections = [...]` silently
+/// becomes `fields.x.sections` and the narrative it declares never
+/// appears. Both spellings are now rejected at parse time.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Bucket order for sorting. Earliest cycle first.
     pub versions: Vec<String>,
@@ -195,11 +204,63 @@ pub struct Config {
     /// `"Unscheduled"`. Only consulted when `split_by_bucket` is set.
     #[serde(default)]
     pub unbucketed_label: Option<String>,
+    /// Hand-written markdown files injected verbatim into the generated
+    /// document, each at a declared slot. Emitted in declaration order
+    /// within a slot.
+    ///
+    /// The escape hatch for prose that belongs to no single feature —
+    /// triage notes, "why this slice", horizon commentary. A generated
+    /// file can still have hand-written parts as long as the boundary is
+    /// explicit, which is what the slot is.
+    #[serde(default)]
+    pub sections: Vec<Section>,
     /// Per-field allowed-value declarations, keyed by field name
     /// (`type`, `class`, `effort`, `area`, `horizon`, `severity`).
     /// `BTreeMap` so validation errors emit in a stable order.
     #[serde(default)]
     pub fields: BTreeMap<String, FieldSpec>,
+}
+
+/// One hand-written markdown file declared in `config.toml`, and where
+/// it lands in the generated document.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Section {
+    /// Path relative to the `.roadmap/` root. Must stay inside it —
+    /// an absolute path or a `..` component is a schema error, so a
+    /// config can't reach out of the source tree it describes.
+    pub file: String,
+    pub slot: Slot,
+}
+
+/// Where a [`Section`] is injected.
+///
+/// Three slots, named for the document's structural landmarks rather
+/// than for individual sections: under `split_by_bucket` the catalog is
+/// several `##` sections, so `BeforeCatalog` means before the *first*
+/// one and `AfterCatalog` after the *last* — the boundaries stay
+/// well-defined however the catalog is shaped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "kebab-case")]
+pub enum Slot {
+    /// After the title and banner, before the catalog.
+    BeforeCatalog,
+    /// After the catalog, before `## Details`.
+    AfterCatalog,
+    /// At the end of the document, after the last feature's details.
+    AfterDetails,
+}
+
+/// A [`Section`] with its file read — what [`render`] consumes, so the
+/// renderer stays string-in/string-out and the I/O lives in
+/// [`load_sections`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedSection {
+    pub slot: Slot,
+    /// The file's contents, injected verbatim: roadmark neither parses
+    /// nor reformats it. Whatever the author wrote is what ships.
+    pub body: String,
 }
 
 /// An empty project: no buckets, no field declarations, everything
@@ -215,6 +276,7 @@ impl Default for Config {
             split_by_bucket: false,
             bucket_label: None,
             unbucketed_label: None,
+            sections: Vec::new(),
             fields: BTreeMap::new(),
         }
     }
@@ -230,6 +292,7 @@ const DEFAULT_UNBUCKETED_LABEL: &str = "Unscheduled";
 /// Declares the allowed values (and shape) of one schema field, so the
 /// project — not this binary — owns its taxonomy.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldSpec {
     /// The closed set of accepted values.
     pub values: Vec<String>,
@@ -673,7 +736,45 @@ fn catalog_groups(features: &[Feature], config: &Config) -> Vec<(String, Vec<usi
     groups
 }
 
-pub fn render(features: &[Feature], config: &Config) -> String {
+/// Leave `out` ending in exactly one blank line, so the next block can be
+/// appended without reasoning about what the previous one left behind.
+///
+/// Every structural block calls this before writing its heading, which is
+/// what lets hand-written sections be spliced between any two of them.
+fn end_with_blank_line(out: &mut String) {
+    if out.is_empty() {
+        return;
+    }
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+}
+
+/// Splice in the hand-written sections declared for `slot`, in
+/// declaration order.
+///
+/// The body goes in **verbatim** — roadmark neither parses nor reformats
+/// it. Only its *framing* is normalised: leading and trailing blank lines
+/// are dropped so the document's spacing doesn't depend on how the
+/// author's editor happened to save the file, and a file that is entirely
+/// blank contributes nothing rather than a hole.
+fn write_sections(out: &mut String, sections: &[LoadedSection], slot: Slot) {
+    for section in sections.iter().filter(|s| s.slot == slot) {
+        let body = section.body.trim_matches('\n');
+        if body.trim().is_empty() {
+            continue;
+        }
+        end_with_blank_line(out);
+        out.push_str(body);
+        out.push('\n');
+    }
+}
+
+pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection]) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(8 * 1024);
     let _ = writeln!(out, "# {}\n", config.title);
@@ -686,6 +787,7 @@ pub fn render(features: &[Feature], config: &Config) -> String {
         let _ = write!(out, " {}", note.replace("-->", "--&gt;"));
     }
     out.push_str(" -->\n\n");
+    write_sections(&mut out, sections, Slot::BeforeCatalog);
     // Only emit an axis column when at least one feature carries a value
     // for it; `always` columns are the table's identity and stay put.
     // Every cell is evaluated exactly once — the presence probe and the
@@ -704,13 +806,8 @@ pub fn render(features: &[Feature], config: &Config) -> String {
         .filter(|&i| columns[i].always || matrix.iter().any(|row| row[i].is_some()))
         .collect();
     let headers: Vec<&str> = active.iter().map(|&i| columns[i].header.as_str()).collect();
-    for (n, (heading, rows)) in catalog_groups(features, config).into_iter().enumerate() {
-        // Separator goes *before* each group but the first, so the last
-        // table ends flush against whatever follows — `## Details` brings
-        // its own leading blank line, as it always has.
-        if n > 0 {
-            out.push('\n');
-        }
+    for (heading, rows) in catalog_groups(features, config) {
+        end_with_blank_line(&mut out);
         let _ = writeln!(out, "## {heading}\n");
         let _ = writeln!(out, "| {} |", headers.join(" | "));
         let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
@@ -722,8 +819,10 @@ pub fn render(features: &[Feature], config: &Config) -> String {
             let _ = writeln!(out, "| {} |", line.join(" | "));
         }
     }
+    write_sections(&mut out, sections, Slot::AfterCatalog);
     if !features.is_empty() {
-        out.push_str("\n## Details\n");
+        end_with_blank_line(&mut out);
+        out.push_str("## Details\n");
         for f in features {
             let fm = &f.frontmatter;
             // The `<a id>` anchor lives on the detail heading, so the
@@ -744,6 +843,7 @@ pub fn render(features: &[Feature], config: &Config) -> String {
             }
         }
     }
+    write_sections(&mut out, sections, Slot::AfterDetails);
     out
 }
 
@@ -885,6 +985,49 @@ fn stage(tmp: &Path, contents: &str, perms: Option<std::fs::Permissions>) -> std
         std::fs::set_permissions(tmp, perms)?;
     }
     Ok(())
+}
+
+/// Resolve a declared section path against the `.roadmap/` root.
+///
+/// Rejects anything that would leave the source tree — an absolute path,
+/// or any `..` component. The config is the project's own, so this is not
+/// a security boundary; it is a predictability one. `.roadmap/` is the
+/// source of truth, and a document assembled partly from outside it can't
+/// be reproduced from a checkout of it.
+///
+/// Shared with `validate`, so the path it reports missing is the path
+/// `generate` would read.
+pub(crate) fn section_path(root: &Path, file: &str) -> Result<PathBuf> {
+    let rel = Path::new(file);
+    if rel.is_absolute() {
+        bail!("section file must be relative to the roadmap root: {file}");
+    }
+    if rel
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        bail!("section file must stay inside the roadmap root: {file}");
+    }
+    Ok(root.join(rel))
+}
+
+/// Read every declared section file, in declaration order.
+///
+/// The I/O half of [`Section`]; `render` takes the results so it stays
+/// filesystem-free and snapshot-testable. A missing file is an error
+/// here — a declared section that silently vanished would leave a hole
+/// in the document that nothing else would report.
+pub fn load_sections(root: &Path, config: &Config) -> Result<Vec<LoadedSection>> {
+    config
+        .sections
+        .iter()
+        .map(|s| {
+            let path = section_path(root, &s.file)?;
+            let body = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading section {}", path.display()))?;
+            Ok(LoadedSection { slot: s.slot, body })
+        })
+        .collect()
 }
 
 pub fn load_config(root: &Path) -> Result<Config> {
@@ -1194,7 +1337,7 @@ type = \"feature\"\n";
             source_note: Some("See docs/adr.".into()),
             ..Config::default()
         };
-        let out = render(&[], &config);
+        let out = render(&[], &config, &[]);
         assert!(out.starts_with("# My Project — Roadmap\n\n"));
         assert!(out.contains("generated by `roadmark generate`"));
         assert!(out.contains("Source of truth: `.roadmap/`. See docs/adr. -->"));
@@ -1238,7 +1381,7 @@ type = \"feature\"\n";
         let mut f = feat("f-x", Status::Todo, "next", "v0.2.x");
         f.frontmatter.area = vec!["CLI | TUI".into()];
         f.body = "Support `a | b` operator.".into();
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         // The row must carry only the intended column separators plus
         // the two escaped literals — never a raw unescaped `|` in the text.
         // The summary strips code-span backticks; pipe-escaping still applies.
@@ -1251,14 +1394,14 @@ type = \"feature\"\n";
         let mut f = feat("f-x", Status::Todo, "next", "v0.2.x");
         f.frontmatter.class = Some("enabler".into());
         f.frontmatter.effort = Some("M".into());
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| [f-x](#f-x) | feature | enabler | M | arch | next | ☐ | v0.2.x |"));
     }
 
     #[test]
     fn render_shows_blocked_glyph_in_catalog_row() {
         let f = feat("f-x", Status::Blocked, "next", "v0.2.x");
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| [f-x](#f-x) | feature | arch | next | ⛔ | v0.2.x |"));
     }
 
@@ -1267,11 +1410,11 @@ type = \"feature\"\n";
         // Alone, an absent horizon drops the column entirely…
         let mut f = feat("f-x", Status::Todo, "unused", "v0.2.x");
         f.frontmatter.horizon = None;
-        let out = render(&[f.clone()], &cfg());
+        let out = render(&[f.clone()], &cfg(), &[]);
         assert!(!out.contains("Horizon"));
         // …but once any feature carries one, the gap renders as `—`.
         let g = feat("f-y", Status::Todo, "next", "v0.2.x");
-        let out = render(&[f, g], &cfg());
+        let out = render(&[f, g], &cfg(), &[]);
         assert!(
             out.contains("| [f-x](#f-x) | feature | arch | — | ☐ | v0.2.x |"),
             "got:\n{out}"
@@ -1283,7 +1426,7 @@ type = \"feature\"\n";
         let mut f = feat("f-broken", Status::Wip, "now", "v0.2.x");
         f.frontmatter.item_type = "fix".into();
         f.frontmatter.severity = Some("major".into());
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| fix | major |"));
     }
 
@@ -1292,7 +1435,7 @@ type = \"feature\"\n";
         // The stock `feat` carries no class/severity and no effort, so
         // those two columns must vanish; the axes it does carry stay.
         let f = feat("f-x", Status::Todo, "next", "v0.2.x");
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| ID | Type | Area | Horizon | Status | Target | Summary |"));
         assert!(out.contains("|---|---|---|---|---|---|---|\n"));
         assert!(!out.contains("Class/Sev"));
@@ -1308,7 +1451,7 @@ type = \"feature\"\n";
         a.frontmatter.effort = Some("M".into());
         a.frontmatter.target = Vec::new();
         let b = feat("f-b", Status::Todo, "next", "v0.2.x");
-        let out = render(&[a, b], &cfg());
+        let out = render(&[a, b], &cfg(), &[]);
         assert!(out.contains("| ID | Type | Effort | Area | Horizon | Status | Target | Summary |"));
         assert!(out.contains("| [f-a](#f-a) | feature | M | arch | next | ☐ | — |"));
         assert!(out.contains("| [f-b](#f-b) | feature | — | arch | next | ☐ | v0.2.x |"));
@@ -1330,6 +1473,7 @@ type = \"feature\"\n";
                 feat("f-b", Status::Todo, "now", "v0.4"),
             ],
             &cfg_split(),
+            &[],
         );
         // Sections replace the single flat catalog, in `versions` order.
         assert!(!out.contains("## Feature catalog"), "got {out}");
@@ -1346,7 +1490,11 @@ type = \"feature\"\n";
     #[test]
     fn split_by_bucket_emits_no_heading_for_an_empty_bucket() {
         // `cfg()` declares v0.2.x, v0.3, v0.4; only v0.3 is used.
-        let out = render(&[feat("f-a", Status::Todo, "now", "v0.3")], &cfg_split());
+        let out = render(
+            &[feat("f-a", Status::Todo, "now", "v0.3")],
+            &cfg_split(),
+            &[],
+        );
         assert!(out.contains("## v0.3"), "got {out}");
         assert!(!out.contains("## v0.2.x"), "got {out}");
         assert!(!out.contains("## v0.4"), "got {out}");
@@ -1359,6 +1507,7 @@ type = \"feature\"\n";
         let out = render(
             &[feat("f-a", Status::Todo, "now", "v0.2.x"), loose],
             &cfg_split(),
+            &[],
         );
         let bucket = out.find("## v0.2.x").expect("bucket heading");
         let tail = out.find("## Unscheduled").expect("tail heading");
@@ -1375,6 +1524,7 @@ type = \"feature\"\n";
         let out = render(
             &[feat("f-a", Status::Todo, "now", "v0.2.x"), stray],
             &cfg_split(),
+            &[],
         );
         assert!(out.contains("| Target |"), "got {out}");
         assert!(out.contains("| [f-stray](#f-stray) |"), "got {out}");
@@ -1393,7 +1543,7 @@ type = \"feature\"\n";
         // the document entirely.
         let mut spanning = feat("f-span", Status::Todo, "now", "v0.2.x");
         spanning.frontmatter.target = vec!["v0.2.x".into(), "v0.4".into()];
-        let out = render(&[spanning], &cfg_split());
+        let out = render(&[spanning], &cfg_split(), &[]);
         assert!(out.contains("## v0.2.x"), "got {out}");
         assert!(out.contains("| Target |"), "got {out}");
         assert!(out.contains("v0.2.x → v0.4"), "got {out}");
@@ -1404,7 +1554,7 @@ type = \"feature\"\n";
         // Every section would be empty; falling through to zero sections
         // would leave a document with no catalog and no header row, which
         // flat mode never produces.
-        let out = render(&[], &cfg_split());
+        let out = render(&[], &cfg_split(), &[]);
         assert!(out.contains("## Feature catalog"), "got {out}");
         assert!(out.contains("| ID | Status | Summary |"), "got {out}");
     }
@@ -1418,7 +1568,7 @@ type = \"feature\"\n";
             versions: vec!["v0.2.x".into(), "v0.3".into(), "v0.2.x".into()],
             ..cfg_split()
         };
-        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config);
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config, &[]);
         assert_eq!(out.matches("## v0.2.x").count(), 1, "got {out}");
         assert_eq!(out.matches("[f-a](#f-a)").count(), 1, "got {out}");
     }
@@ -1429,7 +1579,7 @@ type = \"feature\"\n";
             bucket_label: Some("Priority".into()),
             ..cfg()
         };
-        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config);
+        let out = render(&[feat("f-a", Status::Todo, "now", "v0.2.x")], &config, &[]);
         assert!(out.contains("| Priority |"), "got {out}");
         assert!(!out.contains("| Target |"), "got {out}");
     }
@@ -1442,16 +1592,127 @@ type = \"feature\"\n";
             unbucketed_label: Some("Needs definition".into()),
             ..cfg_split()
         };
-        let out = render(&[loose], &config);
+        let out = render(&[loose], &config, &[]);
         assert!(out.contains("## Needs definition"), "got {out}");
         assert!(!out.contains("## Unscheduled"), "got {out}");
+    }
+
+    fn section(slot: Slot, body: &str) -> LoadedSection {
+        LoadedSection {
+            slot,
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn sections_land_at_their_declared_slots() {
+        let out = render(
+            &[feat("f-a", Status::Todo, "now", "v0.2.x")],
+            &cfg(),
+            &[
+                section(Slot::AfterDetails, "## Epilogue\n"),
+                section(Slot::BeforeCatalog, "## Preamble\n"),
+                section(Slot::AfterCatalog, "## Notes\n"),
+            ],
+        );
+        let at = |needle: &str| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("{needle}\n{out}"))
+        };
+        assert!(at("## Preamble") < at("## Feature catalog"), "got {out}");
+        assert!(at("## Feature catalog") < at("## Notes"), "got {out}");
+        assert!(at("## Notes") < at("## Details"), "got {out}");
+        assert!(at("## Details") < at("## Epilogue"), "got {out}");
+    }
+
+    #[test]
+    fn sections_in_one_slot_keep_declaration_order() {
+        let out = render(
+            &[],
+            &cfg(),
+            &[
+                section(Slot::BeforeCatalog, "first"),
+                section(Slot::BeforeCatalog, "second"),
+            ],
+        );
+        assert!(out.find("first") < out.find("second"), "got {out}");
+    }
+
+    #[test]
+    fn section_body_is_injected_verbatim() {
+        // No parsing, no reformatting: a fenced block, a table and a
+        // trailing-space line survive exactly as written.
+        let body = "Text with `code` and a | pipe.\n\n```rust\nlet x = 1;\n```";
+        let out = render(&[], &cfg(), &[section(Slot::BeforeCatalog, body)]);
+        assert!(out.contains(body), "got {out}");
+    }
+
+    #[test]
+    fn section_framing_is_normalised_but_content_is_not() {
+        // Blank lines around the body are the document's business, not the
+        // author's editor's — otherwise the output depends on how the file
+        // happened to be saved.
+        let out = render(
+            &[],
+            &cfg(),
+            &[section(Slot::BeforeCatalog, "\n\n\nhello\n\n\n")],
+        );
+        assert!(
+            out.contains("-->\n\nhello\n\n## Feature catalog"),
+            "got {out}"
+        );
+    }
+
+    #[test]
+    fn a_blank_section_file_contributes_nothing() {
+        let bare = render(&[], &cfg(), &[]);
+        let with_blank = render(&[], &cfg(), &[section(Slot::BeforeCatalog, "\n  \n")]);
+        assert_eq!(bare, with_blank);
+    }
+
+    #[test]
+    fn sections_keep_their_spacing_around_bucket_sections() {
+        // `before-catalog` lands before the *first* bucket section and
+        // `after-catalog` after the *last*, so the slots stay well-defined
+        // when the catalog is several tables rather than one.
+        let out = render(
+            &[
+                feat("f-a", Status::Todo, "now", "v0.2.x"),
+                feat("f-b", Status::Todo, "now", "v0.4"),
+            ],
+            &cfg_split(),
+            &[
+                section(Slot::BeforeCatalog, "PRE"),
+                section(Slot::AfterCatalog, "POST"),
+            ],
+        );
+        let at = |needle: &str| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("{needle}\n{out}"))
+        };
+        assert!(at("PRE") < at("## v0.2.x"), "got {out}");
+        assert!(at("## v0.4") < at("POST"), "got {out}");
+        assert!(at("POST") < at("## Details"), "got {out}");
+        // Every heading still has its blank line above it.
+        assert!(!out.contains("PRE\n## "), "got {out}");
+        assert!(out.contains("\n\nPOST\n\n## Details"), "got {out}");
+    }
+
+    #[test]
+    fn section_path_stays_inside_the_roadmap_root() {
+        let root = Path::new("/tmp/.roadmap");
+        assert!(section_path(root, "preamble.md").is_ok());
+        assert!(section_path(root, "notes/intro.md").is_ok());
+        assert!(section_path(root, "../escape.md").is_err());
+        assert!(section_path(root, "notes/../../escape.md").is_err());
+        assert!(section_path(root, "/etc/passwd").is_err());
     }
 
     #[test]
     fn render_empty_catalog_keeps_identity_columns() {
         // No features → no axis has a value; only the identity columns
         // remain and the separator row matches their count.
-        let out = render(&[], &cfg());
+        let out = render(&[], &cfg(), &[]);
         assert!(out.contains("| ID | Status | Summary |"));
         assert!(out.contains("|---|---|---|\n"));
     }
@@ -1465,7 +1726,7 @@ type = \"feature\"\n";
             date: "2026-07-12".into(),
             pr: 1,
         };
-        let out = render(&[f], &cfg());
+        let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("## Details"));
         assert!(out.contains("### <a id=\"f-x\"></a>f-x"));
         assert!(out.contains("Shipped in v0.2.0 (2026-07-12, PR #1)."));
@@ -1474,7 +1735,7 @@ type = \"feature\"\n";
 
     #[test]
     fn render_omits_details_section_when_no_features() {
-        let out = render(&[], &cfg());
+        let out = render(&[], &cfg(), &[]);
         assert!(!out.contains("## Details"));
     }
 
@@ -1614,7 +1875,7 @@ type = \"feature\"\n";
             source_note: Some("see foo --> bar".into()),
             ..Config::default()
         };
-        let out = render(&[], &config);
+        let out = render(&[], &config, &[]);
         // The only `-->` in the output is the banner's own closing fence.
         assert_eq!(out.matches("-->").count(), 1);
         assert!(out.contains("see foo --&gt; bar"));

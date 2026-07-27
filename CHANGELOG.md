@@ -10,6 +10,26 @@ and this project adheres to
 
 ### Added
 
+- **`sections`: hand-written narrative in the generated document.**
+  `generate` emitted title → banner → catalog → details, with nowhere to
+  put prose that belongs to no single feature — dated triage notes, "why
+  this slice", horizon commentary, which items are crowned. Adopting
+  roadmark meant deleting a project's reasoning and keeping only its
+  inventory. Markdown files are now declared in `config.toml` with a
+  slot — `before-catalog`, `after-catalog`, `after-details` — and
+  injected **verbatim**: no parsing, no reformatting, only the framing
+  blank lines normalised so output doesn't depend on how the file was
+  saved. Several files may share a slot and emit in declaration order.
+  Under `split_by_bucket` the slots keep meaning: `before-catalog` is
+  before the first section, `after-catalog` after the last. `validate`
+  reports a declared-but-missing file as a hard error, and its anchor
+  diff now regenerates *with* the sections, so an `<a id>` inside one is
+  not mistaken for drift. Paths stay inside `.roadmap/`: an absolute
+  path or a `..` component is a schema error, because a document
+  assembled partly from outside the source tree can't be reproduced from
+  a checkout of it.
+  ([#21](https://github.com/bastien-gallay/roadmark/issues/21))
+
 - **`split_by_bucket = true`: one catalog section per bucket.** Until
   now `versions` was only a sort key, so a roadmap organised *by* its
   buckets — MoSCoW, quarters, release trains — flattened to one long
@@ -115,12 +135,28 @@ and this project adheres to
 
 - The README quick start, the `rename` hint, and the generated banner's
   `source_note` now show the `-o` form rather than the redirection.
-- **`Config` gained three fields (breaking: library API).**
-  `split_by_bucket`, `bucket_label` and `unbucketed_label`. `.roadmap/`
-  trees are unaffected — all three default off — but a struct literal
-  `Config { .. }` in downstream code no longer compiles. `Config` now
-  implements `Default`, so `..Config::default()` covers this addition
-  and the next one.
+- **`render` takes the loaded sections (breaking: library API).**
+  `render(&features, &config)` becomes
+  `render(&features, &config, &sections)`; pass `&[]` for none, or
+  `load_sections(root, &config)?` to include them. A separate
+  two-argument form was rejected deliberately: it would silently drop
+  the narrative of any project whose config declares it, which is the
+  exact failure the feature exists to prevent.
+- **Unknown keys in `config.toml` are rejected (breaking).**
+  `Config` and `[fields.*]` now carry `deny_unknown_fields`, as
+  `Frontmatter` has since 0.6.0. Every config key is optional, so a typo
+  had no shape to fail on and read as "the user didn't want that". TOML
+  sharpens it: a top-level key written *below* a `[fields.x]` table
+  belongs to that table, so a misplaced `sections = [...]` silently
+  became `fields.x.sections` and the narrative it declared never
+  appeared — found while writing the tests for this release. A config
+  carrying a key roadmark doesn't model now fails at parse time instead.
+- **`Config` gained four fields (breaking: library API).**
+  `split_by_bucket`, `bucket_label`, `unbucketed_label` and `sections`.
+  `.roadmap/` trees are unaffected — all four default to off or empty —
+  but a struct literal `Config { .. }` in downstream code no longer
+  compiles. `Config` now implements `Default`, so `..Config::default()`
+  covers these additions and the next one.
 
 ## [0.6.0] - 2026-07-26
 

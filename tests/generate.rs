@@ -23,7 +23,7 @@ fn minimal_fixture_round_trip() {
     let config = roadmark::load_config(&root).unwrap();
     let mut features = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut features, &config);
-    let out = roadmark::render(&features, &config);
+    let out = roadmark::render(&features, &config, &[]);
     insta::assert_snapshot!(out);
 }
 
@@ -40,7 +40,7 @@ fn minimal_fixture_split_by_bucket() {
     config.split_by_bucket = true;
     let mut features = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut features, &config);
-    insta::assert_snapshot!(roadmark::render(&features, &config));
+    insta::assert_snapshot!(roadmark::render(&features, &config, &[]));
 }
 
 /// `generate --output` must write the same bytes the stdout form emits.
@@ -65,7 +65,7 @@ fn output_flag_writes_the_rendered_document() {
     roadmark::sort_features(&mut features, &config);
     assert_eq!(
         std::fs::read_to_string(&target).unwrap(),
-        roadmark::render(&features, &config)
+        roadmark::render(&features, &config, &[])
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
@@ -130,5 +130,8 @@ fn determinism_round_trip() {
     let mut b = roadmark::load_features(&root).unwrap();
     roadmark::sort_features(&mut a, &config);
     roadmark::sort_features(&mut b, &config);
-    assert_eq!(roadmark::render(&a, &config), roadmark::render(&b, &config));
+    assert_eq!(
+        roadmark::render(&a, &config, &[]),
+        roadmark::render(&b, &config, &[])
+    );
 }
