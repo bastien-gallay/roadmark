@@ -4,8 +4,8 @@ type = "feature"
 class = "enabler"
 effort = "L"
 area = ["core"]
-horizon = "now"
-status = "wip"
+horizon = "next"
+status = "done"
 target = ["v0.7"]
 +++
 

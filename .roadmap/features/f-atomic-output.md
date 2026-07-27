@@ -4,8 +4,8 @@ type = "fix"
 severity = "major"
 effort = "S"
 area = ["cli", "core"]
-horizon = "now"
-status = "wip"
+horizon = "next"
+status = "done"
 target = ["v0.7"]
 +++
 
