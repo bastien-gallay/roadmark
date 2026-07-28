@@ -121,9 +121,13 @@ Subcommand modules follow the same split:
 ## Design decisions to preserve
 
 - **Feature bodies stay unparsed `String`s.** A markdown parser would
-  round-trip poorly; the renderer uses the first non-empty line as the
-  catalog Summary and emits the full body verbatim in the Details
-  section. Don't introduce a markdown AST.
+  round-trip poorly; the renderer uses the first non-empty **paragraph**
+  as the catalog Summary — lines joined with spaces, so an 80-column
+  house style can wrap it (#55) — and emits the full body verbatim in
+  the Details section. Don't introduce a markdown AST. The one piece of
+  markdown structure `render` does read is the code span, and it reads
+  it through `code_span_scan`, the crate's single implementation of that
+  rule (`validate` masks with the same one).
 - **Output is deterministic.** `load_features` walks in filename order
   and `sort_features` uses a total key (target bucket → status →
   horizon → `shipped_order` → id). Any new emission must keep
