@@ -647,15 +647,23 @@ fn drop_partial_code_span(cell: &str, full: &str) -> String {
     }
 }
 
-/// Split a line into code-span ranges (delimiters included) plus the offset
-/// of the first opener that never closed.
+/// Split text into code-span ranges (delimiters included) plus the offset of
+/// the first opener that never closed.
 ///
 /// CommonMark's rule, and the reason this is not a backtick count: a run of
-/// N backticks opens a span that ends at the next run of **exactly** N. A
-/// run that never finds its match is literal text, and scanning continues
-/// past it — a later pair of a different length is still a span.
-fn code_span_scan(line: &str) -> (Vec<(usize, usize)>, Option<usize>) {
-    let bytes = line.as_bytes();
+/// N backticks opens a span that ends at the next run of **exactly** N. That
+/// is what lets `` `a` `` and ```` ``a`b`` ```` both work, and what makes a
+/// fenced block (```` ``` ````) just a long span. A run that never finds its
+/// match is literal text, and scanning continues past it — a later pair of a
+/// different length is still a span.
+///
+/// **The one implementation of this rule in the crate.** It was written
+/// twice: `validate` needed it to keep its cross-reference scan out of code
+/// spans, and the catalog Summary needed it once code spans stopped being
+/// stripped (#59). Two scanners means a correction landing in one of them,
+/// so `validate::mask_code_spans` is built on this — keep it that way.
+pub(crate) fn code_span_scan(text: &str) -> (Vec<(usize, usize)>, Option<usize>) {
+    let bytes = text.as_bytes();
     let mut spans = Vec::new();
     let mut unclosed = None;
     let mut i = 0;
