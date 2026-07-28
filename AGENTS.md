@@ -190,19 +190,31 @@ Subcommand modules follow the same split:
   answer) and so is verbatim author text: a long body line — or a
   `source_note` holding a URL longer than the budget, which `wrap_words`
   overflows rather than breaking mid-token — is the project's own choice,
-  and one it can fix in its own source. There is a per-line assertion in
-  `render_uses_title_and_source_note`; extend it rather than working
-  around it, and wrap with `wrap_words` when a new emitted line can grow.
+  and one it can fix in its own source. Wrap with `wrap_words` when a new
+  emitted line can grow, and keep it inside
+  `nothing_render_emits_on_its_own_exceeds_eighty_columns`, which spans
+  the whole document on a deliberately long id — extend that rather than
+  working around it.
 
-  **It is currently false for two lines** (#67), found by re-checking the
-  claim against the published binary rather than against this repo's own
-  tree: a `## Details` heading repeats the id twice around a 26-character
-  frame, so an id past ~27 characters overflows — and `import` derives
-  exactly such ids from bullet prose — while `import-leftovers.md` opens
-  on a 180-column comment. The heading escapes markdownlint because
-  MD013's non-strict default skips a line with no space past the limit,
-  so the lint is silent while the file is over budget. Treat the rule as
-  the target and #67 as the known gap; do not add a third instance.
+  **It shipped false in v0.8.0, for two lines** (#67), found by
+  re-checking the claim against the published binary rather than against
+  this repo's own tree. `## Details` wrote the id *twice*, around a
+  17-column `### <a id=""></a>` frame, so anything past 31 characters
+  overflowed — and `import` derives exactly such ids from bullet prose —
+  while `import-leftovers.md` opened on a 180-column comment. Neither was
+  reachable here: our own ids are short and our own tree has no leftovers
+  file. The heading also escaped markdownlint, because MD013's non-strict
+  default skips a line with no space past the limit — so the lint stayed
+  silent while the file was over budget, which is why the assertion is
+  the guard and the linter is not.
+
+  The fix is the shape, not a cap on top of it: the anchor moved onto its
+  own line above the heading, so the id is written once. A derived slug
+  is *also* bounded (`SLUG_MAX_CHARS`), because the anchor line still has
+  a ceiling — but an id the source wrote in backticks is never cut, on
+  the same reasoning that `wrap_words` overflows a long URL rather than
+  breaking it. Truncating what the author wrote breaks their references;
+  overflowing one line does not.
 
   The wider rule the first lint run taught: **every state `validate`
   accepts has to render lintable markdown, including the ones it only

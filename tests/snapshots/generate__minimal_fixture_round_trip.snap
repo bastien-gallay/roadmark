@@ -18,14 +18,20 @@ expression: out
 
 ## Details
 
-### <a id="f22"></a>F22
+<a id="f22"></a>
+
+### F22
 
 Parenthesised-list (Oxford done; non-Oxford deferred to v0.3 slice).
 
-### <a id="f-roadmap-toml-source"></a>F-roadmap-toml-source
+<a id="f-roadmap-toml-source"></a>
+
+### F-roadmap-toml-source
 
 ROADMAP source-of-truth migrates to `.roadmap/` (gitignored).
 
-### <a id="f-llm-plugin"></a>F-llm-plugin
+<a id="f-llm-plugin"></a>
+
+### F-llm-plugin
 
 LLM plugin — out-of-band suggestion stream alongside diagnostics.

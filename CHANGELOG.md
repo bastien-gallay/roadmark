@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The 80-column rule now holds for the whole generated document
+  (#67).** v0.8.0 stated that nothing `render` emits on its own exceeds
+  80 columns, and shipped two lines that did. `## Details` wrote each id
+  *twice* — once as the `<a id>` anchor, once as the heading text —
+  around a 17-column frame, so any id past 31 characters overflowed; and
+  `import` derives exactly such ids from bullet prose, so the projects
+  most likely to hit it were the ones the release was written for.
+  Separately, `import-leftovers.md` opened on a single 180-column
+  comment.
+  The anchor now sits on its own line above the heading, so the id is
+  written once — the anchor line, now the binding one, fits ids up to 67
+  characters where the old heading stopped at 31; the
+  leftovers comment is fenced over four lines; and a slug *derived* from
+  prose is bounded in characters as well as in words. An id the source
+  wrote in backticks is still never truncated — that would break the
+  references pointing at it.
+  This changes the shape of `## Details` in every regenerated
+  `ROADMAP.md`: one extra line per feature, no content difference.
+  Supersedes the v0.8.0 claim below that the invariant was already
+  enforced end to end — it was enforced on the banner only.
+
 ## [0.8.0] - 2026-07-28
 
 ### Added
@@ -467,6 +492,7 @@ Initial release.
 - Prebuilt binaries for 5 targets plus shell/powershell installers
   (cargo-dist).
 
+[Unreleased]: https://github.com/bastien-gallay/roadmark/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/bastien-gallay/roadmark/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/bastien-gallay/roadmark/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bastien-gallay/roadmark/compare/v0.5.1...v0.6.0

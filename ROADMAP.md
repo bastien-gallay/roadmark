@@ -29,10 +29,13 @@
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | `roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays … |
+| [F-anchor-off-the-heading](#f-anchor-off-the-heading) | fix | minor | S | core | next | ✅ | Later | The 80-column rule now holds for the whole generated document, not only for the banner that motivated it. |
 
 ## Details
 
-### <a id="f-generate"></a>F-generate
+<a id="f-generate"></a>
+
+### F-generate
 
 Shipped in v0.1.0 (2026-07-11).
 
@@ -43,7 +46,9 @@ The pure core (`split_frontmatter` → `parse_feature` → `sort_features` →
 `render`) is string-in/string-out so it stays snapshot-testable; only
 `load_config` / `load_features` touch the filesystem.
 
-### <a id="f-validate"></a>F-validate
+<a id="f-validate"></a>
+
+### F-validate
 
 Shipped in v0.1.0 (2026-07-11).
 
@@ -53,28 +58,36 @@ anchor drift — all issues at once, read-only.
 Silent-passes when `.roadmap/` is absent so the same recipe runs on checkouts
 without the source tree (CI, worktrees).
 
-### <a id="f-add"></a>F-add
+<a id="f-add"></a>
+
+### F-add
 
 Shipped in v0.1.0 (2026-07-11).
 
 `roadmark add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>`
 slugs; legacy `f<digits>` behind `--allow-legacy-numeric`).
 
-### <a id="f-prebuilt-binaries"></a>F-prebuilt-binaries
+<a id="f-prebuilt-binaries"></a>
+
+### F-prebuilt-binaries
 
 Shipped in v0.1.0 (2026-07-11).
 
 cargo-dist release pipeline: binaries for 5 targets plus shell/powershell
 installers on every `v<semver>` tag.
 
-### <a id="f-crlf-parsing"></a>F-crlf-parsing
+<a id="f-crlf-parsing"></a>
+
+### F-crlf-parsing
 
 Shipped in v0.1.0 (2026-07-11).
 
 CRLF-authored feature files parse correctly (Windows checkouts turned `+++`
 fences into `+++\r` and broke `split_frontmatter`).
 
-### <a id="f-schema-v2"></a>F-schema-v2
+<a id="f-schema-v2"></a>
+
+### F-schema-v2
 
 Shipped in v0.2.0 (2026-07-12, PR #1).
 
@@ -85,14 +98,18 @@ per-project in `config.toml` `[fields.*]`, not hardcoded.
 Closed sets, `multi` shape, `required_when` conditions with AND semantics;
 horizon sort order comes from the declared value order.
 
-### <a id="f-rename"></a>F-rename
+<a id="f-rename"></a>
+
+### F-rename
 
 Shipped in v0.4.0 (2026-07-12).
 
 `roadmark rename`: rename a feature id, move its file, and rewrite
 cross-references so anchors stay consistent.
 
-### <a id="f-crates-io"></a>F-crates-io
+<a id="f-crates-io"></a>
+
+### F-crates-io
 
 Shipped in v0.5.0 (2026-07-12).
 
@@ -101,7 +118,9 @@ roadmark` — and added the crates.io version badge to the README. The published
 crate is trimmed to sources, README, changelog, and the license pair via an
 `include` allowlist.
 
-### <a id="f-ci-publish"></a>F-ci-publish
+<a id="f-ci-publish"></a>
+
+### F-ci-publish
 
 Shipped in v0.5.1 (2026-07-13).
 
@@ -119,7 +138,9 @@ path. Requires a one-time Trusted Publisher config on crates.io (repo
 `bastien-gallay/roadmark`, workflow `release.yml` — the OIDC JWT names the
 entry-point workflow, not the reusable `publish-crates-io.yml` it calls).
 
-### <a id="f-partial-schema"></a>F-partial-schema
+<a id="f-partial-schema"></a>
+
+### F-partial-schema
 
 Shipped in v0.6.0 (2026-07-26).
 
@@ -144,7 +165,9 @@ Rationale and the rejected config-driven alternative:
 [ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in v0.6.0,
 whose three breaking changes this is.
 
-### <a id="f-atomic-output"></a>F-atomic-output
+<a id="f-atomic-output"></a>
+
+### F-atomic-output
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -162,7 +185,9 @@ never seen.
 stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and
 existing pipelines are unaffected.
 
-### <a id="f-validate-refs"></a>F-validate-refs
+<a id="f-validate-refs"></a>
+
+### F-validate-refs
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -189,7 +214,9 @@ The warning tier also carries the empty-body check: the body *is* the summary
 field, so a feature without one renders a catalog row that links somewhere and
 says nothing.
 
-### <a id="f-bucket-sections"></a>F-bucket-sections
+<a id="f-bucket-sections"></a>
+
+### F-bucket-sections
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -224,7 +251,9 @@ errors rather than a behaviour the generator picks — and ranking is first-wins
 on both sides of the split, so sorting and grouping can no longer disagree about
 where a bucket sits.
 
-### <a id="f-narrative-sections"></a>F-narrative-sections
+<a id="f-narrative-sections"></a>
+
+### F-narrative-sections
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -250,7 +279,9 @@ so a passing `validate` would promise a document the next command will not
 produce. Paths stay inside the roadmap root: a document assembled partly from
 outside the source of truth cannot be reproduced from a checkout of it.
 
-### <a id="f-declared-fields"></a>F-declared-fields
+<a id="f-declared-fields"></a>
+
+### F-declared-fields
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -276,7 +307,9 @@ now names the declaration that would make a rejected key legal. It also flipped
 direction: an undeclared *frontmatter* key is the error, where an unrecognised
 `[fields.X]` used to be.
 
-### <a id="f-import"></a>F-import
+<a id="f-import"></a>
+
+### F-import
 
 Shipped in v0.7.0 (2026-07-27).
 
@@ -303,7 +336,9 @@ of refusing the tree over it. Nothing is overwritten and no prose is dropped:
 unattributable text lands in a leftovers file, and some of it is a good
 candidate for a [F-narrative-sections](#f-narrative-sections) entry.
 
-### <a id="f-import-bullets"></a>F-import-bullets
+<a id="f-import-bullets"></a>
+
+### F-import-bullets
 
 Shipped in v0.8.0 (2026-07-28, PR #62).
 
@@ -326,7 +361,9 @@ document's own convention and the rest are prose. A nested bullet stays in its
 parent's body: there are no sub-features here, and promoting one would invent
 an id the source never wrote.
 
-### <a id="f-lintable-output"></a>F-lintable-output
+<a id="f-lintable-output"></a>
+
+### F-lintable-output
 
 Shipped in v0.8.0 (2026-07-28, PR #64).
 
@@ -354,18 +391,24 @@ exclusion was forced by the tool rather than chosen by the project, which is
 what made it worth fixing; removing it was only possible once a wrapped body
 kept its summary, so the release dogfoods both halves of what it ships.
 
-### <a id="f-validate-action"></a>F-validate-action
+<a id="f-validate-action"></a>
+
+### F-validate-action
 
 Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can
 gate its roadmap in CI and display a `roadmap: valid` badge — the badge is the
 distribution loop: every repo that shows it advertises the tool.
 
-### <a id="f-init"></a>F-init
+<a id="f-init"></a>
+
+### F-init
 
 `roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented
 field declarations plus one example feature) in a new project.
 
-### <a id="f-roadmark-dir-rename"></a>F-roadmark-dir-rename
+<a id="f-roadmark-dir-rename"></a>
+
+### F-roadmark-dir-rename
 
 Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence.
 Deferred and low priority while usage stays personal. If ever done, ship it
@@ -373,3 +416,31 @@ non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with
 a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is
 arguably clearer and stays consistent with the `ROADMAP.md` output, so this may
 never be worth the churn.
+
+<a id="f-anchor-off-the-heading"></a>
+
+### F-anchor-off-the-heading
+
+The 80-column rule now holds for the whole generated document, not only for
+the banner that motivated it.
+
+[F-lintable-output](#f-lintable-output) stated the rule and shipped two lines
+breaking it. `## Details` wrote each id *twice* — once as the `<a id>` anchor,
+once as the heading text — around a 17-column frame, so any id past 31
+characters overflowed. [F-import-bullets](#f-import-bullets) derives exactly
+such ids from bullet prose, so the projects most likely to hit it were the
+ones v0.8.0 was written for. `import-leftovers.md` opened on a single
+180-column comment.
+
+The anchor moved onto its own line above the heading, so the id is written
+once and the binding constraint became the anchor line at 67 characters
+rather than the heading at 31. A slug *derived* from prose is bounded in
+characters as well as in words; an id the source wrote in backticks is never
+cut, because truncating it would break the references pointing at it.
+
+What let it ship is the part worth keeping: the assertion covered the banner,
+and the claim was checked against this repo's own tree — where ids are short
+and there is no leftovers file. markdownlint was no help either, since MD013's
+non-strict default skips a line with no space past the limit, and a doubled id
+has none. The guard is now a per-line assertion over the whole document on a
+deliberately long id.

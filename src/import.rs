@@ -888,6 +888,12 @@ fn parse_horizon(cell: &str) -> Option<String> {
     (!word.is_empty()).then_some(word)
 }
 
+/// Character budget for a *derived* slug body, before the `f-` prefix.
+/// `render` writes the anchor as `<a id="…"></a>`, a 13-column frame, so
+/// 67 characters is where the emitted line crosses 80; this leaves room
+/// for the prefix and a little headroom.
+const SLUG_MAX_CHARS: usize = 60;
+
 /// Slug from the id cell when there is one, else from the summary's first
 /// words. Always coerced to the canonical `f-<kebab>` shape, so an
 /// imported tree passes the same slug rules a hand-authored one does.
@@ -915,6 +921,21 @@ fn derive_slug(raw_id: &str, summary: &str) -> String {
     }
     let body = body.trim_matches('-').to_string();
     let body = body.strip_prefix("f-").unwrap_or(&body).to_string();
+    // Five words is a bound on *count*, not on length, so five long ones
+    // still produce an id that overflows the anchor line `render` emits
+    // (#67 — `<a id="…"></a>` leaves 67 characters for the slug). Cut back
+    // to a word boundary; a single word past the budget is kept whole, on
+    // the same reasoning as `wrap_words` overflowing a long URL rather
+    // than breaking it. An id the source wrote in backticks is never cut:
+    // it is the author's, and truncating it would break their references.
+    let body = if raw_id.is_empty() && body.chars().count() > SLUG_MAX_CHARS {
+        match body[..SLUG_MAX_CHARS].rfind('-') {
+            Some(cut) => body[..cut].to_string(),
+            None => body,
+        }
+    } else {
+        body
+    };
     if body.is_empty() {
         return "f-imported".to_string();
     }
@@ -1074,10 +1095,15 @@ fn tidy_leftovers(raw: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
+    // The comment opens the file, so it is the first thing an 80-column
+    // lint reads — and as one line it was 180 columns wide (#67). Fenced
+    // over several lines rather than wrapped inline: `-->` on its own line
+    // keeps the closing delimiter off the last sentence, where a future
+    // edit would push it past the limit again.
     format!(
-        "<!-- Prose `roadmark import` could not attribute to a feature. \
-         Move what belongs in a feature body into its file; the rest is a \
-         candidate for a `sections` entry in config.toml. -->\n\n{trimmed}\n"
+        "<!--\nProse `roadmark import` could not attribute to a feature. \
+         Move what belongs\nin a feature body into its file; the rest is a \
+         candidate for a `sections`\nentry in config.toml.\n-->\n\n{trimmed}\n"
     )
 }
 
@@ -1149,6 +1175,46 @@ mod tests {
             derive_slug("", "Regions are now a contiguous partition of space"),
             "f-regions-are-now-a-contiguous"
         );
+    }
+
+    /// Five words is a bound on count, not on length. Five long ones used
+    /// to produce a slug whose `<a id="…"></a>` line broke 80 columns in
+    /// the generated document (#67), which is a lint failure the adopter
+    /// cannot fix — the id came from the tool, not from them.
+    #[test]
+    fn a_derived_slug_cannot_overflow_the_anchor_line() {
+        // Five words, 79 characters — under the word budget, over the
+        // character one. The cut lands on a word boundary.
+        let slug = derive_slug(
+            "",
+            "Instrumentation instrumentation instrumentation instrumentation \
+             instrumentation",
+        );
+        assert_eq!(slug, "f-instrumentation-instrumentation-instrumentation");
+        assert!(classify_slug(&slug).is_ok());
+        // Five words that fit are left alone — the bound is a ceiling, not
+        // a target, and a shorter id than the source justifies is a loss.
+        assert_eq!(
+            derive_slug(
+                "",
+                "Instrumentation dashboards consolidate telemetry aggregation"
+            ),
+            "f-instrumentation-dashboards-consolidate-telemetry-aggregation"
+        );
+        // 13 columns of `<a id="` … `"></a>` frame around whichever it is.
+        for s in [
+            &slug,
+            &derive_slug(
+                "",
+                "Instrumentation dashboards consolidate telemetry aggregation",
+            ),
+        ] {
+            assert!(s.chars().count() + 13 <= 80, "got {s}");
+        }
+        // An id the source wrote itself is never cut: it is the author's,
+        // and truncating it would break the references pointing at it.
+        let given = "F-instrumentation-dashboards-consolidate-telemetry-aggregation-x";
+        assert_eq!(derive_slug(given, ""), given.to_lowercase());
     }
 
     #[test]

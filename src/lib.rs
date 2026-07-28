@@ -1301,12 +1301,19 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
         let _ = writeln!(out, "## {DETAILS_HEADING}");
         for f in features {
             let fm = &f.frontmatter;
-            // The `<a id>` anchor lives on the detail heading, so the
-            // catalog's ID link jumps here (and anchor drift still sees
-            // one anchor per feature).
+            // The `<a id>` anchor sits on its own line *above* the detail
+            // heading, so the catalog's ID link still jumps here and anchor
+            // drift still sees one anchor per feature — but the id is
+            // written once instead of twice. Inline, the frame around it
+            // (`### <a id=""></a>`) cost 17 columns and the id paid for
+            // itself twice, so anything past 31 characters broke the
+            // 80-column rule (#67) — and `import` derives exactly such ids
+            // from bullet prose. The blank line between the two is MD022:
+            // a heading wants blank lines on both sides, and the HTML block
+            // above it is not one.
             let _ = write!(
                 out,
-                "\n### <a id=\"{aid}\"></a>{id}\n\n",
+                "\n<a id=\"{aid}\"></a>\n\n### {id}\n\n",
                 aid = anchor_id(&fm.id),
                 id = fm.id
             );
@@ -1981,6 +1988,42 @@ type = \"feature\"\n";
         }
     }
 
+    /// The banner assertion above covered the banner, which is exactly why
+    /// #67 shipped: the `## Details` heading repeated the id around a
+    /// 17-column frame and nobody was looking. This one spans the *whole*
+    /// document, on an id long enough to have broken the old shape, so a
+    /// new emitted line cannot quietly grow past the limit.
+    ///
+    /// Table rows are exempt (markdownlint's `tables: false`) and so is the
+    /// body, which is the author's verbatim text and their own to wrap.
+    #[test]
+    fn nothing_render_emits_on_its_own_exceeds_eighty_columns() {
+        // 46 characters — the shape `import` derives from bullet prose,
+        // and past the 31 the inline anchor frame used to allow.
+        let long = "F-the-parser-is-the-dominant-per-work-item-cost";
+        let mut f = feat(long, Status::Done, "shipped", "v1");
+        f.frontmatter.shipped = Shipped {
+            version: "v1.0.0".into(),
+            date: "2026-07-28".into(),
+            ..Shipped::default()
+        };
+        f.body = "Short body.".into();
+        let config = Config {
+            versions: vec!["v1".into()],
+            ..Config::default()
+        };
+        let out = render(&[f], &config, &[]);
+        assert!(out.contains(&format!("### {long}")), "got {out}");
+        for line in out.lines() {
+            let emitted_by_us = !line.starts_with('|') && line != "Short body.";
+            assert!(
+                !emitted_by_us || line.chars().count() <= 80,
+                "line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
+    }
+
     #[test]
     fn shipped_order_breaks_ties_before_id() {
         // Same target/status/horizon, distinct ids — the alphabetically
@@ -2578,7 +2621,7 @@ type = \"feature\"\n";
         };
         let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("## Details"));
-        assert!(out.contains("### <a id=\"f-x\"></a>f-x"));
+        assert!(out.contains("<a id=\"f-x\"></a>\n\n### f-x"));
         assert!(out.contains("Shipped in v0.2.0 (2026-07-12, PR #1)."));
         assert!(out.contains("Second paragraph with detail."));
     }
