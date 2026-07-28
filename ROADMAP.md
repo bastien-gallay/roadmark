@@ -24,6 +24,8 @@
 | [F-narrative-sections](#f-narrative-sections) | feature | differentiator | M | core | shipped | ✅ | v0.7 | `sections` declares hand-written markdown files and where they land in the generated document, injected verbatim. |
 | [F-declared-fields](#f-declared-fields) | feature | enabler | L | core | shipped | ✅ | v0.7 | A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and … |
 | [F-import](#f-import) | feature | differentiator | L | cli, core | shipped | ✅ | v0.7 | `roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half … |
+| [F-import-bullets](#f-import-bullets) | feature | enabler | M | cli, core | shipped | ✅ | v0.8 | `import` reads a roadmap written as checkbox bullets, not only one written as tables — the shape most repos actually … |
+| [F-lintable-output](#f-lintable-output) | fix | major | M | core | shipped | ✅ | v0.8 | The generated document cohabits with an 80-column markdown lint, and its two halves render the same sentence the same … |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | `roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays … |
@@ -300,6 +302,57 @@ adopter sees their roadmap, and `validate` names every undecided field instead
 of refusing the tree over it. Nothing is overwritten and no prose is dropped:
 unattributable text lands in a leftovers file, and some of it is a good
 candidate for a [F-narrative-sections](#f-narrative-sections) entry.
+
+### <a id="f-import-bullets"></a>F-import-bullets
+
+Shipped in v0.8.0 (2026-07-28, PR #62).
+
+`import` reads a roadmap written as checkbox bullets, not only one written as
+tables — the shape most repos actually have.
+
+[F-import](#f-import) required a markdown table, so a `ROADMAP.md` organised
+as `- [x]` bullets under bucket headings imported as nothing at all. Position
+replaces the header inference: the checkbox is the status, the leading
+backticked token is the id, the enclosing heading is the target, and the rest
+— continuation lines, nested bullets, further paragraphs — is the body. The
+bullet form is the richer source, since a table cell holds one line and this
+holds paragraphs, so the first *sentence* becomes the catalog Summary and the
+rest stays in `## Details`.
+
+Checklists stay checklists, which is the part that needed deciding. Bullets
+are read only when the document holds no feature table, and within such a
+document only the ones naming an id — as soon as one bullet does, that is the
+document's own convention and the rest are prose. A nested bullet stays in its
+parent's body: there are no sub-features here, and promoting one would invent
+an id the source never wrote.
+
+### <a id="f-lintable-output"></a>F-lintable-output
+
+Shipped in v0.8.0 (2026-07-28, PR #64).
+
+The generated document cohabits with an 80-column markdown lint, and its two
+halves render the same sentence the same way.
+
+Four defects, one complaint, all found migrating a real project onto roadmark.
+The catalog Summary was the body's first *line*, so an author wrapping that
+sentence — as an 80-column house style requires — lost everything after it,
+silently, while `## Details` rendered it whole. The banner was one 86-column
+line with nothing to edit, since the file is regenerated. The delimiter row
+`|---|` under a `| ID |` header was an inconsistent table style. And code
+spans were stripped from the cell but kept in Details, so the catalog lost the
+difference between a symbol and a word.
+
+The rule that came out of it: nothing the renderer emits on its own may exceed
+80 columns, and a cell keeps the markup that carries meaning while dropping
+the markup that carries decoration. Both are enforced rather than remembered —
+there is a per-line assertion on the banner, and CI regenerates `ROADMAP.md`
+and diffs it, because `validate` sees schema and anchor drift but not byte
+drift.
+
+This repo now lints its own generated roadmap instead of excluding it. That
+exclusion was forced by the tool rather than chosen by the project, which is
+what made it worth fixing; removing it was only possible once a wrapped body
+kept its summary, so the release dogfoods both halves of what it ships.
 
 ### <a id="f-validate-action"></a>F-validate-action
 
