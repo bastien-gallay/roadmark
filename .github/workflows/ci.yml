@@ -162,6 +162,16 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - run: cargo run --locked -- validate
+      # `validate` checks schema and *anchor* drift, not byte drift: a
+      # renderer change that reformats the table (the class of bug #54 was)
+      # and lands without a regenerated ROADMAP.md passes it. Regenerating
+      # and diffing is what makes the committed artifact provably the
+      # output of the committed source — and it puts ROADMAP.md in the diff
+      # when formatting changes, which is what triggers markdownlint on it.
+      - name: ROADMAP.md is the output of this source
+        run: |
+          cargo run --locked -- generate -o ROADMAP.md
+          git diff --exit-code -- ROADMAP.md
 
   markdown:
     name: markdownlint

@@ -7,7 +7,7 @@
 ## Feature catalog
 
 | ID | Type | Class/Sev | Effort | Area | Horizon | Status | Target | Summary |
-|---|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [F-generate](#f-generate) | feature | differentiator | L | core, cli | shipped | ✅ | v0.1 | `roadmark generate` renders a deterministic `ROADMAP.md` from the `.roadmap/` tree. |
 | [F-validate](#f-validate) | feature | enabler | M | core, cli | shipped | ✅ | v0.1 | `roadmark validate` reports schema errors, duplicate ids, anchor collisions and anchor drift — all issues at once, … |
 | [F-add](#f-add) | feature | table-stakes | S | cli | shipped | ✅ | v0.1 | `roadmark add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>` slugs; legacy `f<digits>` behind … |
@@ -34,7 +34,8 @@
 
 Shipped in v0.1.0 (2026-07-11).
 
-`roadmark generate` renders a deterministic `ROADMAP.md` from the `.roadmap/` tree.
+`roadmark generate` renders a deterministic `ROADMAP.md` from the `.roadmap/`
+tree.
 
 The pure core (`split_frontmatter` → `parse_feature` → `sort_features` →
 `render`) is string-in/string-out so it stays snapshot-testable; only
@@ -44,34 +45,40 @@ The pure core (`split_frontmatter` → `parse_feature` → `sort_features` →
 
 Shipped in v0.1.0 (2026-07-11).
 
-`roadmark validate` reports schema errors, duplicate ids, anchor collisions and anchor drift — all issues at once, read-only.
+`roadmark validate` reports schema errors, duplicate ids, anchor collisions and
+anchor drift — all issues at once, read-only.
 
-Silent-passes when `.roadmap/` is absent so the same recipe runs on
-checkouts without the source tree (CI, worktrees).
+Silent-passes when `.roadmap/` is absent so the same recipe runs on checkouts
+without the source tree (CI, worktrees).
 
 ### <a id="f-add"></a>F-add
 
 Shipped in v0.1.0 (2026-07-11).
 
-`roadmark add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>` slugs; legacy `f<digits>` behind `--allow-legacy-numeric`).
+`roadmark add` scaffolds a feature file with valid frontmatter (`f-<kebab-name>`
+slugs; legacy `f<digits>` behind `--allow-legacy-numeric`).
 
 ### <a id="f-prebuilt-binaries"></a>F-prebuilt-binaries
 
 Shipped in v0.1.0 (2026-07-11).
 
-cargo-dist release pipeline: binaries for 5 targets plus shell/powershell installers on every `v<semver>` tag.
+cargo-dist release pipeline: binaries for 5 targets plus shell/powershell
+installers on every `v<semver>` tag.
 
 ### <a id="f-crlf-parsing"></a>F-crlf-parsing
 
 Shipped in v0.1.0 (2026-07-11).
 
-CRLF-authored feature files parse correctly (Windows checkouts turned `+++` fences into `+++\r` and broke `split_frontmatter`).
+CRLF-authored feature files parse correctly (Windows checkouts turned `+++`
+fences into `+++\r` and broke `split_frontmatter`).
 
 ### <a id="f-schema-v2"></a>F-schema-v2
 
 Shipped in v0.2.0 (2026-07-12, PR #1).
 
-Config-owned field taxonomies: `type`/`class`/`effort`/`area`/`horizon`/`severity` values are declared per-project in `config.toml` `[fields.*]`, not hardcoded.
+Config-owned field taxonomies:
+`type`/`class`/`effort`/`area`/`horizon`/`severity` values are declared
+per-project in `config.toml` `[fields.*]`, not hardcoded.
 
 Closed sets, `multi` shape, `required_when` conditions with AND semantics;
 horizon sort order comes from the declared value order.
@@ -80,127 +87,236 @@ horizon sort order comes from the declared value order.
 
 Shipped in v0.4.0 (2026-07-12).
 
-`roadmark rename`: rename a feature id, move its file, and rewrite cross-references so anchors stay consistent.
+`roadmark rename`: rename a feature id, move its file, and rewrite
+cross-references so anchors stay consistent.
 
 ### <a id="f-crates-io"></a>F-crates-io
 
 Shipped in v0.5.0 (2026-07-12).
 
-Published `roadmark` to crates.io — it now installs with `cargo install roadmark` — and added the crates.io version badge to the README. The published crate is trimmed to sources, README, changelog, and the license pair via an `include` allowlist.
+Published `roadmark` to crates.io — it now installs with `cargo install
+roadmark` — and added the crates.io version badge to the README. The published
+crate is trimmed to sources, README, changelog, and the license pair via an
+`include` allowlist.
 
 ### <a id="f-ci-publish"></a>F-ci-publish
 
 Shipped in v0.5.1 (2026-07-13).
 
-Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a `v<semver>` tag ships the crate with no long-lived token stored anywhere — GitHub Actions authenticates to crates.io per-run and receives an ephemeral token. Removes the manual `cargo login` / `cargo publish` step.
+Automate the crates.io publish from CI via Trusted Publishing (OIDC), so a
+`v<semver>` tag ships the crate with no long-lived token stored anywhere —
+GitHub Actions authenticates to crates.io per-run and receives an ephemeral
+token. Removes the manual `cargo login` / `cargo publish` step.
 
-Wired as a dist custom publish job (`publish-jobs = ["./publish-crates-io"]`): the dist-generated `release.yml` calls `.github/workflows/publish-crates-io.yml` after a successful `host`, dist grants it `id-token: write`, and `rust-lang/crates-io-auth-action` mints the ephemeral token for `cargo publish`. First proven by the v0.5.1 release, which published to crates.io through this path. Requires a one-time Trusted Publisher config on crates.io (repo `bastien-gallay/roadmark`, workflow `release.yml` — the OIDC JWT names the entry-point workflow, not the reusable `publish-crates-io.yml` it calls).
+Wired as a dist custom publish job (`publish-jobs = ["./publish-crates-io"]`):
+the dist-generated `release.yml` calls `.github/workflows/publish-crates-io.yml`
+after a successful `host`, dist grants it `id-token: write`, and
+`rust-lang/crates-io-auth-action` mints the ephemeral token for `cargo publish`.
+First proven by the v0.5.1 release, which published to crates.io through this
+path. Requires a one-time Trusted Publisher config on crates.io (repo
+`bastien-gallay/roadmark`, workflow `release.yml` — the OIDC JWT names the
+entry-point workflow, not the reusable `publish-crates-io.yml` it calls).
 
 ### <a id="f-partial-schema"></a>F-partial-schema
 
 Shipped in v0.6.0 (2026-07-26).
 
-A project may leave a schema axis out of its feature files entirely, and the generated catalog reflects only the axes it actually holds.
+A project may leave a schema axis out of its feature files entirely, and the
+generated catalog reflects only the axes it actually holds.
 
 `horizon` joins `class`/`effort`/`severity` as an optional field (a feature
-without one sorts last within its bucket), and a catalog column is emitted
-only when at least one feature carries a value for that axis — `ID`,
-`Status` and `Summary` excepted, being the table's identity. `—` therefore
-keeps one meaning: a gap in an axis this project *does* use.
+without one sorts last within its bucket), and a catalog column is emitted only
+when at least one feature carries a value for that axis — `ID`, `Status` and
+`Summary` excepted, being the table's identity. `—` therefore keeps one meaning:
+a gap in an axis this project *does* use.
 
-This unblocks adoption for projects whose priority already lives on a
-tracker board (GitHub Projects, Jira): they get the file layout without a
-second home for `horizon`, and without a catalog three columns of which are
-`—` on every row. A typo'd key (`horizen = "next"`) is rejected rather than
-read as a silent "no horizon" — by `#[serde(deny_unknown_fields)]` when
-this shipped, and since [F-declared-fields](#f-declared-fields) by
-`check_declared_fields`, which reads the config so it can name the
-declaration that would make the key legal.
+This unblocks adoption for projects whose priority already lives on a tracker
+board (GitHub Projects, Jira): they get the file layout without a second home
+for `horizon`, and without a catalog three columns of which are `—` on every
+row. A typo'd key (`horizen = "next"`) is rejected rather than read as a silent
+"no horizon" — by `#[serde(deny_unknown_fields)]` when this shipped, and since
+[F-declared-fields](#f-declared-fields) by `check_declared_fields`, which reads
+the config so it can name the declaration that would make the key legal.
 
 Rationale and the rejected config-driven alternative:
-[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in
-v0.6.0, whose three breaking changes this is.
+[ADR-0002](../../docs/adr/0002-partial-schema-adoption.md). Shipped in v0.6.0,
+whose three breaking changes this is.
 
 ### <a id="f-atomic-output"></a>F-atomic-output
 
 Shipped in v0.7.0 (2026-07-27).
 
-`generate -o/--output <path>` writes the roadmap through a temp file and a rename, so a failed run leaves the committed `ROADMAP.md` untouched.
+`generate -o/--output <path>` writes the roadmap through a temp file and a
+rename, so a failed run leaves the committed `ROADMAP.md` untouched.
 
-The documented recipe `roadmark generate > ROADMAP.md` has the shell truncate the destination to zero bytes *before* the binary runs — any error emptied the roadmap and wrote nothing in its place. [F-schema-v2](#f-schema-v2)'s `deny_unknown_fields` (0.6.0) is what made it fire in practice: a tree carrying one stray frontmatter key generated fine yesterday and destroys its roadmap today, at the exact moment the user is already confused by an error they have never seen.
+The documented recipe `roadmark generate > ROADMAP.md` has the shell truncate
+the destination to zero bytes *before* the binary runs — any error emptied the
+roadmap and wrote nothing in its place. [F-schema-v2](#f-schema-v2)'s
+`deny_unknown_fields` (0.6.0) is what made it fire in practice: a tree carrying
+one stray frontmatter key generated fine yesterday and destroys its roadmap
+today, at the exact moment the user is already confused by an error they have
+never seen.
 
-stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and existing pipelines are unaffected.
+stdout stays the default, so `roadmark generate | diff ROADMAP.md -` and
+existing pipelines are unaffected.
 
 ### <a id="f-validate-refs"></a>F-validate-refs
 
 Shipped in v0.7.0 (2026-07-27).
 
-`validate` checks that every cross-reference in a feature body points at a feature that exists, and grows a soft warning tier for findings that should be named without failing the run.
+`validate` checks that every cross-reference in a feature body points at a
+feature that exists, and grows a soft warning tier for findings that should be
+named without failing the run.
 
-Nothing asked the question a reader hits first — *does this link go anywhere?* Anchor drift could not catch it: drift compares a fresh regen against the committed roadmap, and the regen embeds the same dead link, so the two agree and the check stays silent. [F-rename](#f-rename) keeps references honest when ids change through it; the uncovered paths are the ones that don't — a deleted file, an id mistyped by hand, a reference written before its target exists.
+Nothing asked the question a reader hits first — *does this link go anywhere?*
+Anchor drift could not catch it: drift compares a fresh regen against the
+committed roadmap, and the regen embeds the same dead link, so the two agree and
+the check stays silent. [F-rename](#f-rename) keeps references honest when ids
+change through it; the uncovered paths are the ones that don't — a deleted file,
+an id mistyped by hand, a reference written before its target exists.
 
-Two forms, two tiers. A markdown link to a feature anchor is a hard error, because it ships a broken anchor in the published roadmap. A bare mention in prose is a warning, because prose legitimately names things that are not features. Matching goes through the same anchor rule the renderer uses and the same token boundary [F-rename](#f-rename) uses, so an id never matches inside a longer one. Code spans are masked before the link scan, so a body may quote the syntax without tripping its own check.
+Two forms, two tiers. A markdown link to a feature anchor is a hard error,
+because it ships a broken anchor in the published roadmap. A bare mention in
+prose is a warning, because prose legitimately names things that are not
+features. Matching goes through the same anchor rule the renderer uses and the
+same token boundary [F-rename](#f-rename) uses, so an id never matches inside a
+longer one. Code spans are masked before the link scan, so a body may quote the
+syntax without tripping its own check.
 
-The warning tier also carries the empty-body check: the body *is* the summary field, so a feature without one renders a catalog row that links somewhere and says nothing.
+The warning tier also carries the empty-body check: the body *is* the summary
+field, so a feature without one renders a catalog row that links somewhere and
+says nothing.
 
 ### <a id="f-bucket-sections"></a>F-bucket-sections
 
 Shipped in v0.7.0 (2026-07-27).
 
-`split_by_bucket = true` emits one `##`-headed catalog per bucket instead of a single flat table, in the order `versions` declares.
+`split_by_bucket = true` emits one `##`-headed catalog per bucket instead of a
+single flat table, in the order `versions` declares.
 
-`versions` was only ever a sort key, so a roadmap whose *shape* is its buckets — MoSCoW, quarters, release trains — flattened into one long table with a `Target` column. Nothing was lost, but the top-level structure a reader navigates by was, and the buckets had to wear a column heading that named a release axis they were not.
+`versions` was only ever a sort key, so a roadmap whose *shape* is its buckets —
+MoSCoW, quarters, release trains — flattened into one long table with a `Target`
+column. Nothing was lost, but the top-level structure a reader navigates by was,
+and the buckets had to wear a column heading that named a release axis they were
+not.
 
-The section carries the bucket, so the bucket column drops out inside it — the same rule that drops a column no feature holds. It drops only where the heading carries the *whole* value, though: a multi-valued `target` keeps its cell because only the first entry picks the section, and an undeclared target keeps its because no heading can carry it. Empty buckets emit no heading, untargeted features collect in a trailing section, and `## Details` stays flat and stays one list because it is anchor-addressed and the catalog links into it.
+The section carries the bucket, so the bucket column drops out inside it — the
+same rule that drops a column no feature holds. It drops only where the heading
+carries the *whole* value, though: a multi-valued `target` keeps its cell
+because only the first entry picks the section, and an undeclared target keeps
+its because no heading can carry it. Empty buckets emit no heading, untargeted
+features collect in a trailing section, and `## Details` stays flat and stays
+one list because it is anchor-addressed and the catalog links into it.
 
-Opt-in, because it rewrites every line of the generated file. `bucket_label` and `unbucketed_label` come with it: `versions` is a bucket order, and the vocabulary belongs to the project rather than to this binary.
+Opt-in, because it rewrites every line of the generated file. `bucket_label` and
+`unbucketed_label` come with it: `versions` is a bucket order, and the
+vocabulary belongs to the project rather than to this binary.
 
-Making `versions` name document positions rather than only sort ranks put weight on writing it correctly, so `validate` now checks it. A repeated entry can only hold one position. And splitting turns every project-supplied name — each bucket, plus `unbucketed_label` — into a `##` heading in a document that already writes `## Details` and the `## Feature catalog` a feature-less tree falls back to, so any two landing on the same text emit that heading twice. Both are schema errors rather than a behaviour the generator picks — and ranking is first-wins on both sides of the split, so sorting and grouping can no longer disagree about where a bucket sits.
+Making `versions` name document positions rather than only sort ranks put weight
+on writing it correctly, so `validate` now checks it. A repeated entry can only
+hold one position. And splitting turns every project-supplied name — each
+bucket, plus `unbucketed_label` — into a `##` heading in a document that already
+writes `## Details` and the `## Feature catalog` a feature-less tree falls back
+to, so any two landing on the same text emit that heading twice. Both are schema
+errors rather than a behaviour the generator picks — and ranking is first-wins
+on both sides of the split, so sorting and grouping can no longer disagree about
+where a bucket sits.
 
 ### <a id="f-narrative-sections"></a>F-narrative-sections
 
 Shipped in v0.7.0 (2026-07-27).
 
-`sections` declares hand-written markdown files and where they land in the generated document, injected verbatim.
+`sections` declares hand-written markdown files and where they land in the
+generated document, injected verbatim.
 
-The generated document had four fixed parts and no room for prose that belongs to no single feature: dated triage notes, why *this* slice and not another, horizon commentary, which items are crowned and in what order. That prose is *about* the relationships between features, so no feature body holds it — and moving it to a separate file means neither file is the roadmap any more. Adopting roadmark used to mean keeping the inventory and dropping the reasoning, which is the half a reader trusts most.
+The generated document had four fixed parts and no room for prose that belongs
+to no single feature: dated triage notes, why *this* slice and not another,
+horizon commentary, which items are crowned and in what order. That prose is
+*about* the relationships between features, so no feature body holds it — and
+moving it to a separate file means neither file is the roadmap any more.
+Adopting roadmark used to mean keeping the inventory and dropping the reasoning,
+which is the half a reader trusts most.
 
-Three slots, named for the document's structural landmarks rather than for individual sections, so they keep meaning when [F-bucket-sections](#f-bucket-sections) turns the catalog into several tables. Verbatim means verbatim: no parsing, no reformatting, only the framing blank lines normalised so the output does not depend on how an editor saved the file.
+Three slots, named for the document's structural landmarks rather than for
+individual sections, so they keep meaning when
+[F-bucket-sections](#f-bucket-sections) turns the catalog into several tables.
+Verbatim means verbatim: no parsing, no reformatting, only the framing blank
+lines normalised so the output does not depend on how an editor saved the file.
 
-A declared file that is missing is a hard error — `generate` refuses outright, so a passing `validate` would promise a document the next command will not produce. Paths stay inside the roadmap root: a document assembled partly from outside the source of truth cannot be reproduced from a checkout of it.
+A declared file that is missing is a hard error — `generate` refuses outright,
+so a passing `validate` would promise a document the next command will not
+produce. Paths stay inside the roadmap root: a document assembled partly from
+outside the source of truth cannot be reproduced from a checkout of it.
 
 ### <a id="f-declared-fields"></a>F-declared-fields
 
 Shipped in v0.7.0 (2026-07-27).
 
-A `[fields.X]` naming something roadmark does not model declares a field of the project's own, validated for shape and optionally rendered as a linked catalog column.
+A `[fields.X]` naming something roadmark does not model declares a field of the
+project's own, validated for shape and optionally rendered as a linked catalog
+column.
 
-The schema had no home for a tracking issue, an owner, a spec URL. `shipped.pr` covers the shipping PR but not the issue a live feature is discussed in, so that fact lived in the free-text body — where nothing validated it, no column could show it, and no projection could read it. The GitHub Projects adapter needs it to locate a board item at all.
+The schema had no home for a tracking issue, an owner, a spec URL. `shipped.pr`
+covers the shipping PR but not the issue a live feature is discussed in, so that
+fact lived in the free-text body — where nothing validated it, no column could
+show it, and no projection could read it. The GitHub Projects adapter needs it
+to locate a board item at all.
 
-`kind` checks shape where `values` cannot enumerate a set, and `link` turns each value into a link by substituting it for a placeholder, which keeps the forge out of the binary. There is deliberately no `pattern`: roadmark carries no regex dependency, and a half-regex would be worse than none.
+`kind` checks shape where `values` cannot enumerate a set, and `link` turns each
+value into a link by substituting it for a placeholder, which keeps the forge
+out of the binary. There is deliberately no `pattern`: roadmark carries no regex
+dependency, and a half-regex would be worse than none.
 
-The cost is that `Frontmatter` can no longer use serde's `deny_unknown_fields` — it is incompatible with the flattened map arbitrary keys require. The guarantee did not go away, it moved one layer out to a check that reads the config, and it now names the declaration that would make a rejected key legal. It also flipped direction: an undeclared *frontmatter* key is the error, where an unrecognised `[fields.X]` used to be.
+The cost is that `Frontmatter` can no longer use serde's `deny_unknown_fields` —
+it is incompatible with the flattened map arbitrary keys require. The guarantee
+did not go away, it moved one layer out to a check that reads the config, and it
+now names the declaration that would make a rejected key legal. It also flipped
+direction: an undeclared *frontmatter* key is the error, where an unrecognised
+`[fields.X]` used to be.
 
 ### <a id="f-import"></a>F-import
 
 Shipped in v0.7.0 (2026-07-27).
 
-`roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half and naming the rest.
+`roadmark import <file>` bootstraps a `.roadmap/` tree from an existing
+hand-written roadmap, doing the mechanical half and naming the rest.
 
-This is the adoption cost. Every candidate adopter already has a `ROADMAP.md` — that is the premise of the pitch — and the tool asked them to retype it. Seventy rows of careful transcription is *nearly* mechanical, which is exactly the shape of task where hand-migration goes wrong silently. [F-init](#f-init) scaffolds an empty tree; it does nothing for a project that already has a roadmap, which is every project that would want this one.
+This is the adoption cost. Every candidate adopter already has a `ROADMAP.md` —
+that is the premise of the pitch — and the tool asked them to retype it. Seventy
+rows of careful transcription is *nearly* mechanical, which is exactly the shape
+of task where hand-migration goes wrong silently. [F-init](#f-init) scaffolds an
+empty tree; it does nothing for a project that already has a roadmap, which is
+every project that would want this one.
 
-What a table can say is derived: id, status from the glyph or the word, horizon, area, the body from the summary cell, and the bucket from the enclosing heading when the document is organised that way. What it cannot say splits along the line the schema already draws — the omissible axes are written commented out with their value set inline, and the mandatory ones get a placeholder, because a comment there produces a file that does not parse.
+What a table can say is derived: id, status from the glyph or the word, horizon,
+area, the body from the summary cell, and the bucket from the enclosing heading
+when the document is organised that way. What it cannot say splits along the
+line the schema already draws — the omissible axes are written commented out
+with their value set inline, and the mandatory ones get a placeholder, because a
+comment there produces a file that does not parse.
 
-That asymmetry is the design. The imported tree generates on arrival, so the adopter sees their roadmap, and `validate` names every undecided field instead of refusing the tree over it. Nothing is overwritten and no prose is dropped: unattributable text lands in a leftovers file, and some of it is a good candidate for a [F-narrative-sections](#f-narrative-sections) entry.
+That asymmetry is the design. The imported tree generates on arrival, so the
+adopter sees their roadmap, and `validate` names every undecided field instead
+of refusing the tree over it. Nothing is overwritten and no prose is dropped:
+unattributable text lands in a leftovers file, and some of it is a good
+candidate for a [F-narrative-sections](#f-narrative-sections) entry.
 
 ### <a id="f-validate-action"></a>F-validate-action
 
-Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a `roadmap: valid` badge — the badge is the distribution loop: every repo that shows it advertises the tool.
+Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can
+gate its roadmap in CI and display a `roadmap: valid` badge — the badge is the
+distribution loop: every repo that shows it advertises the tool.
 
 ### <a id="f-init"></a>F-init
 
-`roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example feature) in a new project.
+`roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented
+field declarations plus one example feature) in a new project.
 
 ### <a id="f-roadmark-dir-rename"></a>F-roadmark-dir-rename
 
-Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays personal. If ever done, ship it non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is arguably clearer and stays consistent with the `ROADMAP.md` output, so this may never be worth the churn.
+Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence.
+Deferred and low priority while usage stays personal. If ever done, ship it
+non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with
+a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is
+arguably clearer and stays consistent with the `ROADMAP.md` output, so this may
+never be worth the churn.

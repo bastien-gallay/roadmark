@@ -647,15 +647,23 @@ fn drop_partial_code_span(cell: &str, full: &str) -> String {
     }
 }
 
-/// Split a line into code-span ranges (delimiters included) plus the offset
-/// of the first opener that never closed.
+/// Split text into code-span ranges (delimiters included) plus the offset of
+/// the first opener that never closed.
 ///
 /// CommonMark's rule, and the reason this is not a backtick count: a run of
-/// N backticks opens a span that ends at the next run of **exactly** N. A
-/// run that never finds its match is literal text, and scanning continues
-/// past it — a later pair of a different length is still a span.
-fn code_span_scan(line: &str) -> (Vec<(usize, usize)>, Option<usize>) {
-    let bytes = line.as_bytes();
+/// N backticks opens a span that ends at the next run of **exactly** N. That
+/// is what lets `` `a` `` and ```` ``a`b`` ```` both work, and what makes a
+/// fenced block (```` ``` ````) just a long span. A run that never finds its
+/// match is literal text, and scanning continues past it — a later pair of a
+/// different length is still a span.
+///
+/// **The one implementation of this rule in the crate.** It was written
+/// twice: `validate` needed it to keep its cross-reference scan out of code
+/// spans, and the catalog Summary needed it once code spans stopped being
+/// stripped (#59). Two scanners means a correction landing in one of them,
+/// so `validate::mask_code_spans` is built on this — keep it that way.
+pub(crate) fn code_span_scan(text: &str) -> (Vec<(usize, usize)>, Option<usize>) {
+    let bytes = text.as_bytes();
     let mut spans = Vec::new();
     let mut unclosed = None;
     let mut i = 0;
@@ -1024,7 +1032,12 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
         CatalogColumn {
             header: "Summary".into(),
             always: true,
-            value: Box::new(|f| Some(escape_cell(&summary(&f.body)))),
+            // `None` rather than an empty string: an empty body is a
+            // `validate` *warning*, so it reaches `render` on a tree the
+            // tool called clean, and `|  |` is a table-style lint error
+            // (MD060) on a document this repo now lints. The `—` every
+            // other absent value gets says the same thing and lints.
+            value: Box::new(|f| Some(escape_cell(&summary(&f.body))).filter(|s| !s.is_empty())),
         },
     ];
     // Project-declared columns land between the built-in axes and
@@ -1269,7 +1282,11 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
         end_with_blank_line(&mut out);
         let _ = writeln!(out, "## {heading}\n");
         let _ = writeln!(out, "| {} |", headers.join(" | "));
-        let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
+        // Spaced like the header and the rows: markdownlint's MD060 reads a
+        // `|---|` delimiter under a `| ID |` header as an inconsistent table
+        // style, which is the same complaint as #54 — the output has to be
+        // lintable for a project that lints its markdown.
+        let _ = writeln!(out, "| {} |", vec!["---"; active.len()].join(" | "));
         for row in rows.into_iter().map(|i| &matrix[i]) {
             let line: Vec<&str> = active
                 .iter()
@@ -1299,6 +1316,11 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
             let body = f.body.trim();
             if !body.is_empty() {
                 let _ = writeln!(out, "{body}");
+            } else if fm.shipped.version.is_empty() {
+                // Nothing was written under the heading, and the next one
+                // opens with its own blank line — three newlines in a row
+                // is MD012. Absorb one.
+                out.pop();
             }
         }
     }
@@ -2054,7 +2076,7 @@ type = \"feature\"\n";
         let f = feat("f-x", Status::Todo, "next", "v0.2.x");
         let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| ID | Type | Area | Horizon | Status | Target | Summary |"));
-        assert!(out.contains("|---|---|---|---|---|---|---|\n"));
+        assert!(out.contains("| --- | --- | --- | --- | --- | --- | --- |\n"));
         assert!(!out.contains("Class/Sev"));
         assert!(!out.contains("Effort"));
         assert!(out.contains("| [f-x](#f-x) | feature | arch | next | ☐ | v0.2.x |"));
@@ -2542,7 +2564,7 @@ type = \"feature\"\n";
         // remain and the separator row matches their count.
         let out = render(&[], &cfg(), &[]);
         assert!(out.contains("| ID | Status | Summary |"));
-        assert!(out.contains("|---|---|---|\n"));
+        assert!(out.contains("| --- | --- | --- |\n"));
     }
 
     #[test]
@@ -2559,6 +2581,26 @@ type = \"feature\"\n";
         assert!(out.contains("### <a id=\"f-x\"></a>f-x"));
         assert!(out.contains("Shipped in v0.2.0 (2026-07-12, PR #1)."));
         assert!(out.contains("Second paragraph with detail."));
+    }
+
+    /// An empty body is a `validate` **warning**, so it reaches `render` on
+    /// a tree the tool called clean. Both places it used to emit
+    /// unlintable markdown are now covered, because the generated document
+    /// is linted in CI from this release on.
+    #[test]
+    fn an_empty_body_still_renders_a_lintable_document() {
+        let mut f = feat("f-x", Status::Todo, "next", "v0.2.x");
+        f.body = "   \n".into();
+        let mut g = feat("f-y", Status::Todo, "next", "v0.2.x");
+        g.body = "A body.\n".into();
+        let out = render(&[f, g], &cfg(), &[]);
+        // `|  |` is MD060 (extra space for style "compact"); the `—` every
+        // other absent value gets says the same thing and lints.
+        assert!(!out.contains("|  |"), "empty cell emitted:\n{out}");
+        assert!(out.contains("| — |"), "no placeholder cell:\n{out}");
+        // …and the heading with nothing under it must not leave two blank
+        // lines behind it (MD012).
+        assert!(!out.contains("\n\n\n"), "consecutive blanks:\n{out}");
     }
 
     #[test]

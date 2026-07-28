@@ -13,7 +13,12 @@
   // CLAUDE.md is only an `@AGENTS.md` import pointer, not prose. Feature
   // files (fixtures + examples + our own .roadmap/) are frontmatter data
   // whose body starts with a summary paragraph by design, not an H1.
-  // ROADMAP.md is a generated artifact.
+  //
+  // ROADMAP.md is *not* ignored: it is generated, and linting it is the
+  // point. It was excluded while the banner was 86 columns wide (#54) —
+  // an exclusion the tool forced rather than the project choosing. Our
+  // own feature bodies wrap at 80 too, which #55 made possible by
+  // reading the summary as a paragraph instead of a line.
   "ignores": [
     "target/**",
     "node_modules/**",
@@ -21,7 +26,6 @@
     // them locally is the one way a bare run stops mirroring CI.
     ".personal/**",
     "CLAUDE.md",
-    "ROADMAP.md",
     ".roadmap/features/**",
     "examples/.roadmap/features/**",
     "tests/fixtures/**"

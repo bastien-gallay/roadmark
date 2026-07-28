@@ -648,63 +648,28 @@ fn link_targets(body: &str) -> Vec<String> {
 /// Replace the contents of every backtick-delimited code span with spaces,
 /// keeping byte length and every other character intact.
 ///
-/// A run of N backticks opens a span that the next run of exactly N
-/// backticks closes — the CommonMark rule, which is what lets `` `a` ``
-/// and ```` ``a`b`` ```` both work, and what makes a fenced block (```)
-/// just a long span. An unterminated run opens nothing, so a lone backtick
-/// in prose does not swallow the rest of the body.
+/// The CommonMark span rule lives in one place, [`crate::code_span_scan`] —
+/// this only decides what to do with the ranges it returns. It was written
+/// here first and then again for the catalog Summary (#59); two copies of
+/// one rule is one correction landing in half the places that need it.
+///
+/// Byte length is preserved because the spans are blanked in place, so an
+/// offset into the mask still means the same position in the body.
 fn mask_code_spans(body: &str) -> String {
-    let bytes: Vec<char> = body.chars().collect();
+    let (spans, _) = crate::code_span_scan(body);
     let mut out = String::with_capacity(body.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != '`' {
-            out.push(bytes[i]);
-            i += 1;
-            continue;
+    let mut cursor = 0;
+    for (open, close) in spans {
+        out.push_str(&body[cursor..open]);
+        // One space per *byte*, so the mask and the body stay aligned even
+        // when the span held multi-byte text.
+        for _ in open..close {
+            out.push(' ');
         }
-        let open = run_len(&bytes, i);
-        match closing_run(&bytes, i + open, open) {
-            Some(close) => {
-                // Blank the fence and its contents; a `)` or `](#` inside
-                // is now invisible to the scan above.
-                for _ in i..close + open {
-                    out.push(' ');
-                }
-                i = close + open;
-            },
-            // Unterminated: it is an ordinary character after all.
-            None => {
-                for _ in 0..open {
-                    out.push('`');
-                }
-                i += open;
-            },
-        }
+        cursor = close;
     }
+    out.push_str(&body[cursor..]);
     out
-}
-
-/// Length of the backtick run starting at `start`.
-fn run_len(chars: &[char], start: usize) -> usize {
-    chars[start..].iter().take_while(|&&c| c == '`').count()
-}
-
-/// Index of the next run of *exactly* `want` backticks at or after `from`.
-fn closing_run(chars: &[char], from: usize, want: usize) -> Option<usize> {
-    let mut i = from;
-    while i < chars.len() {
-        if chars[i] == '`' {
-            let n = run_len(chars, i);
-            if n == want {
-                return Some(i);
-            }
-            i += n;
-        } else {
-            i += 1;
-        }
-    }
-    None
 }
 
 /// Maximal runs of slug/id characters, i.e. whole tokens. Splitting on the
