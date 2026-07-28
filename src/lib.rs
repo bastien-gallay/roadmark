@@ -1277,7 +1277,11 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
         end_with_blank_line(&mut out);
         let _ = writeln!(out, "## {heading}\n");
         let _ = writeln!(out, "| {} |", headers.join(" | "));
-        let _ = writeln!(out, "|{}", "---|".repeat(active.len()));
+        // Spaced like the header and the rows: markdownlint's MD060 reads a
+        // `|---|` delimiter under a `| ID |` header as an inconsistent table
+        // style, which is the same complaint as #54 — the output has to be
+        // lintable for a project that lints its markdown.
+        let _ = writeln!(out, "| {} |", vec!["---"; active.len()].join(" | "));
         for row in rows.into_iter().map(|i| &matrix[i]) {
             let line: Vec<&str> = active
                 .iter()
@@ -2062,7 +2066,7 @@ type = \"feature\"\n";
         let f = feat("f-x", Status::Todo, "next", "v0.2.x");
         let out = render(&[f], &cfg(), &[]);
         assert!(out.contains("| ID | Type | Area | Horizon | Status | Target | Summary |"));
-        assert!(out.contains("|---|---|---|---|---|---|---|\n"));
+        assert!(out.contains("| --- | --- | --- | --- | --- | --- | --- |\n"));
         assert!(!out.contains("Class/Sev"));
         assert!(!out.contains("Effort"));
         assert!(out.contains("| [f-x](#f-x) | feature | arch | next | ☐ | v0.2.x |"));
@@ -2550,7 +2554,7 @@ type = \"feature\"\n";
         // remain and the separator row matches their count.
         let out = render(&[], &cfg(), &[]);
         assert!(out.contains("| ID | Status | Summary |"));
-        assert!(out.contains("|---|---|---|\n"));
+        assert!(out.contains("| --- | --- | --- |\n"));
     }
 
     #[test]

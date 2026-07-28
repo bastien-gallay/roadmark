@@ -11,4 +11,5 @@ shipped = { version = "v0.4.0", date = "2026-07-12" }
 shipped_order = 7
 +++
 
-`roadmark rename`: rename a feature id, move its file, and rewrite cross-references so anchors stay consistent.
+`roadmark rename`: rename a feature id, move its file, and rewrite
+cross-references so anchors stay consistent.
