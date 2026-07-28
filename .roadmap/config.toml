@@ -1,6 +1,8 @@
 # Bucket order. Earliest cycle first. Ranks features, and under
 # `split_by_bucket` also orders and names the catalog sections.
-versions = ["v0.1", "v0.2", "v0.3", "v0.4", "v0.5", "v0.6", "v0.7", "Later"]
+versions = [
+  "v0.1", "v0.2", "v0.3", "v0.4", "v0.5", "v0.6", "v0.7", "v0.8", "Later",
+]
 
 title = "roadmark — Roadmap"
 
