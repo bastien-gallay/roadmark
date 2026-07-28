@@ -1032,7 +1032,12 @@ fn catalog_columns(config: &Config) -> Vec<CatalogColumn<'_>> {
         CatalogColumn {
             header: "Summary".into(),
             always: true,
-            value: Box::new(|f| Some(escape_cell(&summary(&f.body)))),
+            // `None` rather than an empty string: an empty body is a
+            // `validate` *warning*, so it reaches `render` on a tree the
+            // tool called clean, and `|  |` is a table-style lint error
+            // (MD060) on a document this repo now lints. The `—` every
+            // other absent value gets says the same thing and lints.
+            value: Box::new(|f| Some(escape_cell(&summary(&f.body))).filter(|s| !s.is_empty())),
         },
     ];
     // Project-declared columns land between the built-in axes and
@@ -1311,6 +1316,11 @@ pub fn render(features: &[Feature], config: &Config, sections: &[LoadedSection])
             let body = f.body.trim();
             if !body.is_empty() {
                 let _ = writeln!(out, "{body}");
+            } else if fm.shipped.version.is_empty() {
+                // Nothing was written under the heading, and the next one
+                // opens with its own blank line — three newlines in a row
+                // is MD012. Absorb one.
+                out.pop();
             }
         }
     }
@@ -2571,6 +2581,26 @@ type = \"feature\"\n";
         assert!(out.contains("### <a id=\"f-x\"></a>f-x"));
         assert!(out.contains("Shipped in v0.2.0 (2026-07-12, PR #1)."));
         assert!(out.contains("Second paragraph with detail."));
+    }
+
+    /// An empty body is a `validate` **warning**, so it reaches `render` on
+    /// a tree the tool called clean. Both places it used to emit
+    /// unlintable markdown are now covered, because the generated document
+    /// is linted in CI from this release on.
+    #[test]
+    fn an_empty_body_still_renders_a_lintable_document() {
+        let mut f = feat("f-x", Status::Todo, "next", "v0.2.x");
+        f.body = "   \n".into();
+        let mut g = feat("f-y", Status::Todo, "next", "v0.2.x");
+        g.body = "A body.\n".into();
+        let out = render(&[f, g], &cfg(), &[]);
+        // `|  |` is MD060 (extra space for style "compact"); the `—` every
+        // other absent value gets says the same thing and lints.
+        assert!(!out.contains("|  |"), "empty cell emitted:\n{out}");
+        assert!(out.contains("| — |"), "no placeholder cell:\n{out}");
+        // …and the heading with nothing under it must not leave two blank
+        // lines behind it (MD012).
+        assert!(!out.contains("\n\n\n"), "consecutive blanks:\n{out}");
     }
 
     #[test]

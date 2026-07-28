@@ -94,6 +94,13 @@ pub(crate) fn derive_id(slug: &str) -> String {
     }
 }
 
+/// The scaffolded file, ready to `generate`.
+///
+/// The placeholder is wrapped: `## Details` reproduces a body verbatim, so
+/// a 93-column template line meant `add` followed by `generate` produced a
+/// document that failed an 80-column lint — with no local signal, since
+/// feature files themselves are lint-exempt (frontmatter data, no H1). It
+/// also demonstrates the wrapping the summary now supports (#55).
 fn render_template(id: &str) -> String {
     format!(
         r#"+++
@@ -105,7 +112,8 @@ status = "todo"
 target = ["<TODO>"]
 +++
 
-<TODO: one-paragraph summary — the first paragraph becomes the catalog row's Summary column.>
+<TODO: one-paragraph summary. The whole first paragraph becomes the
+catalog row's Summary column, so wrapping it is safe.>
 "#,
     )
 }
@@ -174,6 +182,21 @@ mod tests {
         assert!(body.contains(r#"id = "F-new-thing""#));
         assert!(body.contains(r#"status = "todo""#));
         assert!(body.contains("<TODO"));
+    }
+
+    /// `## Details` reproduces a body verbatim, so a template line over 80
+    /// columns means `add` followed by `generate` produces a document that
+    /// fails the lint CI now runs on it — and the author gets no local
+    /// signal, since feature files are lint-exempt.
+    #[test]
+    fn the_scaffold_fits_an_eighty_column_lint() {
+        for line in render_template("F-some-feature").lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "template line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
     }
 
     #[test]

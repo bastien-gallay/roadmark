@@ -35,10 +35,26 @@ and this project adheres to
   and the generated document now passes. Our own feature bodies wrap at
   80 columns too, which is only usable because #55 reads the catalog
   Summary as a paragraph rather than a line. The two fixes are dogfooded
-  by the repo that ships them, and CI would catch a regression in either.
+  by the repo that ships them.
+- **CI regenerates `ROADMAP.md` and diffs it.** `validate` checks schema
+  and *anchor* drift, not byte drift, so a renderer change that reformats
+  the table — the class of bug #54 was — could land without a regenerated
+  artifact and stay green. The committed document is now provably the
+  output of the committed source.
 
 ### Fixed
 
+- **An empty feature body no longer emits unlintable markdown.** An empty
+  body is a `validate` *warning*, so it reaches `render` on a tree the
+  tool called clean — where it produced an empty catalog cell (`|  |`,
+  a table-style error) and left two blank lines under its Details heading.
+  The cell now carries the `—` every other absent value gets, and the
+  blank line is absorbed. Found once the generated document was linted.
+- **`add`'s scaffold fits 80 columns.** Its placeholder line was 93, and
+  `## Details` reproduces a body verbatim, so `add` followed by `generate`
+  produced a document failing an 80-column lint — with no local signal,
+  since feature files are lint-exempt. It is wrapped now, which also
+  shows the wrapping the summary supports since #55.
 - **The catalog's delimiter row is spaced like its header (#54).**
   `|---|---|` under a `| ID | Type |` header is an inconsistent table
   style to markdownlint (MD060), which was the last rule standing between
