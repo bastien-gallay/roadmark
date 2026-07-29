@@ -534,7 +534,11 @@ fn import_table(
                 &status,
                 horizon.as_deref(),
                 target.as_deref(),
-                &summary,
+                // A table cell is one line by construction, so it is the
+                // *likelier* source of an over-wide body than a bullet —
+                // and the table is the more common import shape. Wrapping
+                // only the bullet path left #71 half fixed.
+                &rewrap(&summary),
             ),
             slug,
             id,
@@ -794,10 +798,63 @@ fn bullet_body(entry: &BulletEntry) -> String {
 }
 
 /// Wrap one recomposed paragraph to the width the generated document has
-/// to fit. Shares `render`'s wrapper, so a word longer than the budget — a
-/// URL, a path — overflows its line rather than being broken.
+/// to fit.
+///
+/// **Never opens a line on a token that would start a markdown block.**
+/// Wrapping moves words to column 0, where markdown reads them
+/// structurally: greedy wrapping of `… specification x x x x 1. Then we
+/// verify …` put `1.` at the start of a line, and CommonMark turned the
+/// author's sentence into an ordered list — a silent change of meaning,
+/// plus an MD032 error replacing the MD013 one this was fixing. Fixing a
+/// lint defect by introducing a lint defect is the thing the 80-column
+/// rule exists to prevent, so the line overflows instead, on the same
+/// reasoning `wrap_words` overflows a URL longer than the budget: width is
+/// a lint limit, meaning is not negotiable.
+///
+/// This is why it does not simply call `wrap_words`. That one wraps the
+/// banner, which lives inside an HTML comment where no token is
+/// structural; here every line is markdown.
 fn rewrap(paragraph: &str) -> String {
-    crate::wrap_words(paragraph, BODY_WRAP_WIDTH).join("\n")
+    let mut lines: Vec<String> = Vec::new();
+    for word in paragraph.split_whitespace() {
+        match lines.last_mut() {
+            Some(line)
+                if line.chars().count() + 1 + word.chars().count() <= BODY_WRAP_WIDTH
+                    || starts_a_block(word) =>
+            {
+                line.push(' ');
+                line.push_str(word);
+            },
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines.join("\n")
+}
+
+/// Whether this token, placed at column 0, would open a markdown block
+/// rather than continue a paragraph.
+///
+/// Deliberately over-inclusive: a false positive costs one overflowing
+/// line, a false negative silently rewrites the author's prose into a
+/// list, a heading, or a quote. `-` and `=` runs are here for the setext
+/// case, where the *previous* line becomes the heading.
+fn starts_a_block(word: &str) -> bool {
+    let ordered_marker = || {
+        let digits = word.trim_end_matches(['.', ')']);
+        digits.len() + 1 == word.len()
+            && !digits.is_empty()
+            && digits.chars().all(|c| c.is_ascii_digit())
+    };
+    matches!(word, "-" | "+" | "*")
+        || word.starts_with('>')
+        || word.starts_with('|')
+        || word.starts_with("```")
+        || word.starts_with("~~~")
+        || word.starts_with('<')
+        || (!word.is_empty() && word.chars().all(|c| c == '#'))
+        || (!word.is_empty() && word.chars().all(|c| c == '='))
+        || (!word.is_empty() && word.chars().all(|c| c == '-'))
+        || ordered_marker()
 }
 
 /// Tokens that end in `.` without ending a sentence.
@@ -1201,6 +1258,56 @@ mod tests {
             derive_slug("", "Regions are now a contiguous partition of space"),
             "f-regions-are-now-a-contiguous"
         );
+    }
+
+    /// Wrapping moves words to column 0, where markdown reads them
+    /// structurally. Greedy wrapping put `1.` at the start of a line and
+    /// CommonMark turned the sentence into an ordered list — MD032 in
+    /// place of the MD013 the wrap was fixing, plus a silent change of
+    /// meaning. The line overflows instead.
+    #[test]
+    fn wrapping_never_opens_a_line_on_a_block_marker() {
+        let para = "Stage two flips the router as described in the referenced \
+                    specification x x x x 1. Then we verify the rest of the flow.";
+        let wrapped = rewrap(para);
+        for line in wrapped.lines() {
+            let first = line.split_whitespace().next().unwrap_or("");
+            assert!(!starts_a_block(first), "line opens a block: {line:?}");
+        }
+        // The overflowing line is the price, and it is stated: the token
+        // that would have opened the block is pulled up rather than
+        // starting a line, so line one runs past the budget.
+        assert!(wrapped.starts_with("Stage two"), "got {wrapped:?}");
+        assert!(
+            wrapped.lines().next().unwrap().ends_with("x x x x 1."),
+            "got {wrapped:?}"
+        );
+        assert!(wrapped.lines().next().unwrap().chars().count() > 80);
+        // Nothing is lost — only the break moved.
+        assert_eq!(
+            wrapped.split_whitespace().collect::<Vec<_>>(),
+            para.split_whitespace().collect::<Vec<_>>()
+        );
+    }
+
+    /// A table cell is one line by construction, so it is the likelier
+    /// source of an over-wide body than a bullet — and the table is the
+    /// more common import shape. #71 fixed only the bullet path.
+    #[test]
+    fn a_table_row_body_is_wrapped_too() {
+        let plan = plan(
+            "# P\n\n## v1\n\n\
+             | ID | Status | Summary |\n| --- | --- | --- |\n\
+             | F-alpha | done | Instrumentation dashboards consolidate telemetry \
+             aggregation pipelines across every single regional deployment we run. |\n",
+        );
+        for line in plan.features[0].contents.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
     }
 
     /// Reading a bullet joins its continuation lines, and `## Details`
