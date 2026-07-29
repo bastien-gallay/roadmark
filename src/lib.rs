@@ -1240,7 +1240,7 @@ fn write_banner(out: &mut String, note: Option<&str>) {
 /// gets its own line and overflows it rather than being broken: a cut
 /// identifier is worse than a long line, and the caller's budget is a lint
 /// limit, not a hard constraint.
-fn wrap_words(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap_words(text: &str, width: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {

@@ -60,18 +60,27 @@ const MAPPABLE: &[&str] = &[
 ///
 /// Paired with the `[fields.*]` suggestions written into `config.toml`, so
 /// uncommenting one side has something to validate against.
+///
+/// Written to fit 80 columns once commented (`# ` prefix included): a
+/// feature file is markdown, and an adopter who lints their own
+/// `.roadmap/` should not have to exclude what the import wrote (#71).
 const UNDECIDABLE: &[(&str, &str)] = &[
     (
         "class",
-        r#"class = "enabler"       # differentiator | enabler | table-stakes | polish | bet"#,
+        r#"class = "enabler"  # differentiator | enabler | table-stakes | polish | bet"#,
     ),
-    ("effort", r#"effort = "M"            # S | M | L"#),
+    ("effort", r#"effort = "M"       # S | M | L"#),
 ];
 
 /// Placeholder for a mandatory field the source could not supply. Not a
 /// plausible value on purpose: it parses, so `generate` runs, and it fails
 /// membership the moment the axis is declared.
 const TODO_VALUE: &str = "<TODO>";
+
+/// Width an imported body is wrapped to. `## Details` reproduces a body
+/// verbatim, so this is the same 80-column budget the rest of the
+/// generated document keeps.
+const BODY_WRAP_WIDTH: usize = 80;
 
 /// How a source table's headers map onto roadmark's fields.
 ///
@@ -525,7 +534,11 @@ fn import_table(
                 &status,
                 horizon.as_deref(),
                 target.as_deref(),
-                &summary,
+                // A table cell is one line by construction, so it is the
+                // *likelier* source of an over-wide body than a bullet —
+                // and the table is the more common import shape. Wrapping
+                // only the bullet path left #71 half fixed.
+                &rewrap(&summary),
             ),
             slug,
             id,
@@ -761,17 +774,87 @@ fn import_bullet(
 /// richness, produce a catalog that still scans. Nothing is lost: the rest
 /// of the paragraph and any nested list follow it in the body, and
 /// `## Details` renders all of it.
+///
+/// Both halves are re-wrapped, because reading the bullet joined its
+/// continuation lines and `## Details` reproduces a body verbatim — so a
+/// source wrapped at 68 and 48 columns came out as one 104-column line the
+/// adopter could not find anywhere in their own file (#71). Keeping their
+/// original breaks is not on the table: the sentence boundary does not
+/// align with them, and it is the split that forces the recomposition. So
+/// the choice is between one long line and a re-wrapped one, and only the
+/// second is lintable. `entry.tail` is left alone — nested lists and later
+/// paragraphs keep their own lines, which are still the author's.
 fn bullet_body(entry: &BulletEntry) -> String {
     let (summary, rest) = split_first_sentence(&entry.prose);
-    let mut paragraphs = vec![summary];
+    let mut paragraphs = vec![rewrap(&summary)];
     if !rest.is_empty() {
-        paragraphs.push(rest);
+        paragraphs.push(rewrap(&rest));
     }
     if !entry.tail.is_empty() {
         paragraphs.push(entry.tail.join("\n").trim_end().to_string());
     }
     paragraphs.retain(|p| !p.trim().is_empty());
     paragraphs.join("\n\n")
+}
+
+/// Wrap one recomposed paragraph to the width the generated document has
+/// to fit.
+///
+/// **Never opens a line on a token that would start a markdown block.**
+/// Wrapping moves words to column 0, where markdown reads them
+/// structurally: greedy wrapping of `… specification x x x x 1. Then we
+/// verify …` put `1.` at the start of a line, and CommonMark turned the
+/// author's sentence into an ordered list — a silent change of meaning,
+/// plus an MD032 error replacing the MD013 one this was fixing. Fixing a
+/// lint defect by introducing a lint defect is the thing the 80-column
+/// rule exists to prevent, so the line overflows instead, on the same
+/// reasoning `wrap_words` overflows a URL longer than the budget: width is
+/// a lint limit, meaning is not negotiable.
+///
+/// This is why it does not simply call `wrap_words`. That one wraps the
+/// banner, which lives inside an HTML comment where no token is
+/// structural; here every line is markdown.
+fn rewrap(paragraph: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for word in paragraph.split_whitespace() {
+        match lines.last_mut() {
+            Some(line)
+                if line.chars().count() + 1 + word.chars().count() <= BODY_WRAP_WIDTH
+                    || starts_a_block(word) =>
+            {
+                line.push(' ');
+                line.push_str(word);
+            },
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines.join("\n")
+}
+
+/// Whether this token, placed at column 0, would open a markdown block
+/// rather than continue a paragraph.
+///
+/// Deliberately over-inclusive: a false positive costs one overflowing
+/// line, a false negative silently rewrites the author's prose into a
+/// list, a heading, or a quote. `-` and `=` runs are here for the setext
+/// case, where the *previous* line becomes the heading.
+fn starts_a_block(word: &str) -> bool {
+    let ordered_marker = || {
+        let digits = word.trim_end_matches(['.', ')']);
+        digits.len() + 1 == word.len()
+            && !digits.is_empty()
+            && digits.chars().all(|c| c.is_ascii_digit())
+    };
+    matches!(word, "-" | "+" | "*")
+        || word.starts_with('>')
+        || word.starts_with('|')
+        || word.starts_with("```")
+        || word.starts_with("~~~")
+        || word.starts_with('<')
+        || (!word.is_empty() && word.chars().all(|c| c == '#'))
+        || (!word.is_empty() && word.chars().all(|c| c == '='))
+        || (!word.is_empty() && word.chars().all(|c| c == '-'))
+        || ordered_marker()
 }
 
 /// Tokens that end in `.` without ending a sentence.
@@ -1174,6 +1257,95 @@ mod tests {
         assert_eq!(
             derive_slug("", "Regions are now a contiguous partition of space"),
             "f-regions-are-now-a-contiguous"
+        );
+    }
+
+    /// Wrapping moves words to column 0, where markdown reads them
+    /// structurally. Greedy wrapping put `1.` at the start of a line and
+    /// CommonMark turned the sentence into an ordered list — MD032 in
+    /// place of the MD013 the wrap was fixing, plus a silent change of
+    /// meaning. The line overflows instead.
+    #[test]
+    fn wrapping_never_opens_a_line_on_a_block_marker() {
+        let para = "Stage two flips the router as described in the referenced \
+                    specification x x x x 1. Then we verify the rest of the flow.";
+        let wrapped = rewrap(para);
+        for line in wrapped.lines() {
+            let first = line.split_whitespace().next().unwrap_or("");
+            assert!(!starts_a_block(first), "line opens a block: {line:?}");
+        }
+        // The overflowing line is the price, and it is stated: the token
+        // that would have opened the block is pulled up rather than
+        // starting a line, so line one runs past the budget.
+        assert!(wrapped.starts_with("Stage two"), "got {wrapped:?}");
+        assert!(
+            wrapped.lines().next().unwrap().ends_with("x x x x 1."),
+            "got {wrapped:?}"
+        );
+        assert!(wrapped.lines().next().unwrap().chars().count() > 80);
+        // Nothing is lost — only the break moved.
+        assert_eq!(
+            wrapped.split_whitespace().collect::<Vec<_>>(),
+            para.split_whitespace().collect::<Vec<_>>()
+        );
+    }
+
+    /// A table cell is one line by construction, so it is the likelier
+    /// source of an over-wide body than a bullet — and the table is the
+    /// more common import shape. #71 fixed only the bullet path.
+    #[test]
+    fn a_table_row_body_is_wrapped_too() {
+        let plan = plan(
+            "# P\n\n## v1\n\n\
+             | ID | Status | Summary |\n| --- | --- | --- |\n\
+             | F-alpha | done | Instrumentation dashboards consolidate telemetry \
+             aggregation pipelines across every single regional deployment we run. |\n",
+        );
+        for line in plan.features[0].contents.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
+    }
+
+    /// Reading a bullet joins its continuation lines, and `## Details`
+    /// reproduces a body verbatim — so without re-wrapping, a source the
+    /// adopter had wrapped at 68 and 48 columns came out as one 104-column
+    /// line that exists nowhere in their file (#71). Every word is theirs
+    /// and there is nothing for them to fix, which is exactly the shape of
+    /// defect the 80-column rule exists to prevent.
+    #[test]
+    fn an_imported_file_fits_the_lint_the_generated_document_must_pass() {
+        let plan = plan(
+            "# P\n\n## v1.0\n\n\
+             - [x] Instrumentation dashboards consolidate telemetry aggregation\n  \
+             pipelines across every regional deployment. They also fan out over \
+             each availability zone, which is where the per-work cost hides.\n",
+        );
+        let contents = &plan.features[0].contents;
+        for line in contents.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
+        // Re-wrapped, not truncated: every word survives, and the only
+        // thing that changed is where the lines break.
+        let body = contents.split("+++\n").nth(2).unwrap();
+        assert_eq!(
+            body.split_whitespace().collect::<Vec<_>>().join(" "),
+            "Instrumentation dashboards consolidate telemetry aggregation \
+             pipelines across every regional deployment. They also fan out \
+             over each availability zone, which is where the per-work cost \
+             hides."
+        );
+        // The summary sentence still opens its own paragraph.
+        assert!(
+            contents.contains("regional deployment.\n\nThey also fan out"),
+            "got {contents}"
         );
     }
 
