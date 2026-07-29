@@ -26,10 +26,10 @@
 | [F-import](#f-import) | feature | differentiator | L | cli, core | shipped | ✅ | v0.7 | `roadmark import <file>` bootstraps a `.roadmap/` tree from an existing hand-written roadmap, doing the mechanical half … |
 | [F-import-bullets](#f-import-bullets) | feature | enabler | M | cli, core | shipped | ✅ | v0.8 | `import` reads a roadmap written as checkbox bullets, not only one written as tables — the shape most repos actually … |
 | [F-lintable-output](#f-lintable-output) | fix | major | M | core | shipped | ✅ | v0.8 | The generated document cohabits with an 80-column markdown lint, and its two halves render the same sentence the same … |
+| [F-anchor-off-the-heading](#f-anchor-off-the-heading) | fix | minor | S | core | shipped | ✅ | v0.8 | The 80-column rule now holds for the whole generated document, not only for the banner that motivated it. |
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | `roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays … |
-| [F-anchor-off-the-heading](#f-anchor-off-the-heading) | fix | minor | S | core | next | ✅ | Later | The 80-column rule now holds for the whole generated document, not only for the banner that motivated it. |
 
 ## Details
 
@@ -391,6 +391,36 @@ exclusion was forced by the tool rather than chosen by the project, which is
 what made it worth fixing; removing it was only possible once a wrapped body
 kept its summary, so the release dogfoods both halves of what it ships.
 
+<a id="f-anchor-off-the-heading"></a>
+
+### F-anchor-off-the-heading
+
+Shipped in v0.8.1 (2026-07-29, PR #69).
+
+The 80-column rule now holds for the whole generated document, not only for
+the banner that motivated it.
+
+[F-lintable-output](#f-lintable-output) stated the rule and shipped two lines
+breaking it. `## Details` wrote each id *twice* — once as the `<a id>` anchor,
+once as the heading text — around a 17-column frame, so any id past 31
+characters overflowed. [F-import-bullets](#f-import-bullets) derives exactly
+such ids from bullet prose, so the projects most likely to hit it were the
+ones v0.8.0 was written for. `import-leftovers.md` opened on a single
+180-column comment.
+
+The anchor moved onto its own line above the heading, so the id is written
+once and the binding constraint became the anchor line at 67 characters
+rather than the heading at 31. A slug *derived* from prose is bounded in
+characters as well as in words; an id the source wrote in backticks is never
+cut, because truncating it would break the references pointing at it.
+
+What let it ship is the part worth keeping: the assertion covered the banner,
+and the claim was checked against this repo's own tree — where ids are short
+and there is no leftovers file. markdownlint was no help either, since MD013's
+non-strict default skips a line with no space past the limit, and a doubled id
+has none. The guard is now a per-line assertion over the whole document on a
+deliberately long id.
+
 <a id="f-validate-action"></a>
 
 ### F-validate-action
@@ -416,31 +446,3 @@ non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with
 a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is
 arguably clearer and stays consistent with the `ROADMAP.md` output, so this may
 never be worth the churn.
-
-<a id="f-anchor-off-the-heading"></a>
-
-### F-anchor-off-the-heading
-
-The 80-column rule now holds for the whole generated document, not only for
-the banner that motivated it.
-
-[F-lintable-output](#f-lintable-output) stated the rule and shipped two lines
-breaking it. `## Details` wrote each id *twice* — once as the `<a id>` anchor,
-once as the heading text — around a 17-column frame, so any id past 31
-characters overflowed. [F-import-bullets](#f-import-bullets) derives exactly
-such ids from bullet prose, so the projects most likely to hit it were the
-ones v0.8.0 was written for. `import-leftovers.md` opened on a single
-180-column comment.
-
-The anchor moved onto its own line above the heading, so the id is written
-once and the binding constraint became the anchor line at 67 characters
-rather than the heading at 31. A slug *derived* from prose is bounded in
-characters as well as in words; an id the source wrote in backticks is never
-cut, because truncating it would break the references pointing at it.
-
-What let it ship is the part worth keeping: the assertion covered the banner,
-and the claim was checked against this repo's own tree — where ids are short
-and there is no leftovers file. markdownlint was no help either, since MD013's
-non-strict default skips a line with no space past the limit, and a doubled id
-has none. The guard is now a per-line assertion over the whole document on a
-deliberately long id.

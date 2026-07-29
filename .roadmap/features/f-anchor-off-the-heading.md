@@ -4,9 +4,11 @@ type = "fix"
 severity = "minor"
 effort = "S"
 area = ["core"]
-horizon = "next"
+horizon = "shipped"
 status = "done"
-target = ["Later"]
+target = ["v0.8"]
+shipped = { version = "v0.8.1", date = "2026-07-29", pr = 69 }
+shipped_order = 19
 +++
 
 The 80-column rule now holds for the whole generated document, not only for
