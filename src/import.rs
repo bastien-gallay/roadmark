@@ -60,18 +60,27 @@ const MAPPABLE: &[&str] = &[
 ///
 /// Paired with the `[fields.*]` suggestions written into `config.toml`, so
 /// uncommenting one side has something to validate against.
+///
+/// Written to fit 80 columns once commented (`# ` prefix included): a
+/// feature file is markdown, and an adopter who lints their own
+/// `.roadmap/` should not have to exclude what the import wrote (#71).
 const UNDECIDABLE: &[(&str, &str)] = &[
     (
         "class",
-        r#"class = "enabler"       # differentiator | enabler | table-stakes | polish | bet"#,
+        r#"class = "enabler"  # differentiator | enabler | table-stakes | polish | bet"#,
     ),
-    ("effort", r#"effort = "M"            # S | M | L"#),
+    ("effort", r#"effort = "M"       # S | M | L"#),
 ];
 
 /// Placeholder for a mandatory field the source could not supply. Not a
 /// plausible value on purpose: it parses, so `generate` runs, and it fails
 /// membership the moment the axis is declared.
 const TODO_VALUE: &str = "<TODO>";
+
+/// Width an imported body is wrapped to. `## Details` reproduces a body
+/// verbatim, so this is the same 80-column budget the rest of the
+/// generated document keeps.
+const BODY_WRAP_WIDTH: usize = 80;
 
 /// How a source table's headers map onto roadmark's fields.
 ///
@@ -761,17 +770,34 @@ fn import_bullet(
 /// richness, produce a catalog that still scans. Nothing is lost: the rest
 /// of the paragraph and any nested list follow it in the body, and
 /// `## Details` renders all of it.
+///
+/// Both halves are re-wrapped, because reading the bullet joined its
+/// continuation lines and `## Details` reproduces a body verbatim — so a
+/// source wrapped at 68 and 48 columns came out as one 104-column line the
+/// adopter could not find anywhere in their own file (#71). Keeping their
+/// original breaks is not on the table: the sentence boundary does not
+/// align with them, and it is the split that forces the recomposition. So
+/// the choice is between one long line and a re-wrapped one, and only the
+/// second is lintable. `entry.tail` is left alone — nested lists and later
+/// paragraphs keep their own lines, which are still the author's.
 fn bullet_body(entry: &BulletEntry) -> String {
     let (summary, rest) = split_first_sentence(&entry.prose);
-    let mut paragraphs = vec![summary];
+    let mut paragraphs = vec![rewrap(&summary)];
     if !rest.is_empty() {
-        paragraphs.push(rest);
+        paragraphs.push(rewrap(&rest));
     }
     if !entry.tail.is_empty() {
         paragraphs.push(entry.tail.join("\n").trim_end().to_string());
     }
     paragraphs.retain(|p| !p.trim().is_empty());
     paragraphs.join("\n\n")
+}
+
+/// Wrap one recomposed paragraph to the width the generated document has
+/// to fit. Shares `render`'s wrapper, so a word longer than the budget — a
+/// URL, a path — overflows its line rather than being broken.
+fn rewrap(paragraph: &str) -> String {
+    crate::wrap_words(paragraph, BODY_WRAP_WIDTH).join("\n")
 }
 
 /// Tokens that end in `.` without ending a sentence.
@@ -1174,6 +1200,45 @@ mod tests {
         assert_eq!(
             derive_slug("", "Regions are now a contiguous partition of space"),
             "f-regions-are-now-a-contiguous"
+        );
+    }
+
+    /// Reading a bullet joins its continuation lines, and `## Details`
+    /// reproduces a body verbatim — so without re-wrapping, a source the
+    /// adopter had wrapped at 68 and 48 columns came out as one 104-column
+    /// line that exists nowhere in their file (#71). Every word is theirs
+    /// and there is nothing for them to fix, which is exactly the shape of
+    /// defect the 80-column rule exists to prevent.
+    #[test]
+    fn an_imported_file_fits_the_lint_the_generated_document_must_pass() {
+        let plan = plan(
+            "# P\n\n## v1.0\n\n\
+             - [x] Instrumentation dashboards consolidate telemetry aggregation\n  \
+             pipelines across every regional deployment. They also fan out over \
+             each availability zone, which is where the per-work cost hides.\n",
+        );
+        let contents = &plan.features[0].contents;
+        for line in contents.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line is {} columns: {line:?}",
+                line.chars().count()
+            );
+        }
+        // Re-wrapped, not truncated: every word survives, and the only
+        // thing that changed is where the lines break.
+        let body = contents.split("+++\n").nth(2).unwrap();
+        assert_eq!(
+            body.split_whitespace().collect::<Vec<_>>().join(" "),
+            "Instrumentation dashboards consolidate telemetry aggregation \
+             pipelines across every regional deployment. They also fan out \
+             over each availability zone, which is where the per-work cost \
+             hides."
+        );
+        // The summary sentence still opens its own paragraph.
+        assert!(
+            contents.contains("regional deployment.\n\nThey also fan out"),
+            "got {contents}"
         );
     }
 

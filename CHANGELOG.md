@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`import` no longer un-wraps the body it read (#71).** Reading a
+  checkbox bullet joins its continuation lines, and `## Details`
+  reproduces a body verbatim — so a source the adopter had wrapped at 68
+  and 48 columns came out as one 104-column line in both the feature file
+  and the generated `ROADMAP.md`. Every word was theirs and the line
+  existed nowhere in their file, so there was nothing for them to fix:
+  the same defect as #54 and #67, wearing author's clothes.
+  Both halves of the split body are now re-wrapped at 80. Keeping the
+  original breaks is not available — the first-sentence split does not
+  align with them, and it is the split that forces the recomposition — so
+  the choice was between one long line and a re-wrapped one. Nested lists
+  and later paragraphs keep their own lines, which are still the
+  author's.
+  The commented-out `class` suggestion `import` writes was 82 columns; it
+  now fits 80 once commented, so an adopter who lints their own
+  `.roadmap/` has nothing to exclude.
+
 ## [0.8.1] - 2026-07-29
 
 ### Fixed
@@ -492,6 +513,7 @@ Initial release.
 - Prebuilt binaries for 5 targets plus shell/powershell installers
   (cargo-dist).
 
+[Unreleased]: https://github.com/bastien-gallay/roadmark/compare/v0.8.1...HEAD
 [0.8.1]: https://github.com/bastien-gallay/roadmark/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/bastien-gallay/roadmark/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/bastien-gallay/roadmark/compare/v0.6.0...v0.7.0
