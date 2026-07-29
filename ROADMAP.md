@@ -30,6 +30,7 @@
 | [F-validate-action](#f-validate-action) | feature | differentiator | M | release, docs | next | ☐ | Later | Ship a reusable GitHub Action that runs `roadmark validate`, so any repo can gate its roadmap in CI and display a … |
 | [F-init](#f-init) | feature | enabler | S | cli, docs | later | ☐ | Later | `roadmark init` scaffolds a starter `.roadmap/` tree (config.toml with commented field declarations plus one example … |
 | [F-roadmark-dir-rename](#f-roadmark-dir-rename) | chore | — | M | core, cli | parked | ☐ | Later | Rename the source directory `.roadmap/` → `.roadmark/` for brand coherence. Deferred and low priority while usage stays … |
+| [F-code-spans-are-literals](#f-code-spans-are-literals) | fix | minor | S | core | next | ✅ | Later | The bare-reference warning reads a code span as a literal, so a filename that happens to contain a feature id stops … |
 | [F-import-keeps-the-wrapping](#f-import-keeps-the-wrapping) | fix | minor | S | cli, core | next | ✅ | Later | An imported body wraps to the same 80 columns the generated document keeps, so an adopter who wrapped their source gets … |
 
 ## Details
@@ -447,6 +448,32 @@ non-breaking (option B): default to `.roadmark/`, fall back to `.roadmap/` with
 a deprecation warning — targeted at a future v1.0, not before. `.roadmap/` is
 arguably clearer and stays consistent with the `ROADMAP.md` output, so this may
 never be worth the churn.
+
+<a id="f-code-spans-are-literals"></a>
+
+### F-code-spans-are-literals
+
+The bare-reference warning reads a code span as a literal, so a filename that
+happens to contain a feature id stops reading as a mention.
+
+The warning exists to catch prose saying `F-something` that no feature
+declares. Inside backticks the text is not prose: it is a path, a filename, or
+a literal. A report named after a feature — the convention this project's own
+docs suggest — was reported as naming an undeclared feature, so the check
+asked for a feature to exist because a *file* was named after one. There was
+no way to satisfy it without changing correct content, since the path is the
+file's name.
+
+Code spans are now masked once, for the link scan and the bare-token scan
+alike. `rename` is deliberately untouched: it still rewrites a path reference
+inside backticks, and should. The two want opposite things from the same text
+and both are right — following a rename is not the same act as asserting a
+declaration ought to exist.
+
+What the old rule also covered is given up on purpose: a genuine
+cross-reference written in backticks no longer warns. That is the right way
+round. A missed warning costs a reader one lookup; the false one cost the
+adopter a defect they could not repair.
 
 <a id="f-import-keeps-the-wrapping"></a>
 

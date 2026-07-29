@@ -542,7 +542,9 @@ fn empty_body_and_dead_prose_reference_warn_without_failing() {
     .unwrap();
     std::fs::write(
         features.join("f-prose.md"),
-        feature_src("F-prose", "", "Sibling to `F-gone`, roughly.\n"),
+        // Unbackticked on purpose: a code span is a literal, not prose
+        // naming a feature, and is deliberately not reported (#58).
+        feature_src("F-prose", "", "Sibling to F-gone, roughly.\n"),
     )
     .unwrap();
 

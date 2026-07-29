@@ -591,12 +591,26 @@ fn check_dangling_refs(
 /// `[F-foo](#f-foo)` is reported once, as the link it is. Manual scanner —
 /// the shapes are fixed and narrow, and (like `extract_anchors` and
 /// `rename::replace_token`) don't justify a regex dep.
+///
+/// **Code spans are masked once, for both scans** ([`mask_code_spans`]).
+/// Inside backticks the text is not prose: it is a path, a filename, or a
+/// literal. A report named after a feature —
+/// `` `reports/F-capture-rung2.md` `` — was reported as prose naming an
+/// undeclared feature, so the warning asked for a feature to exist because
+/// a *file* was named after one (#58). Unfixable without changing correct
+/// content, since the path is the file's name.
+///
+/// This does not touch `rename`, which still rewrites a path reference
+/// inside backticks — and should. The two want opposite things from the
+/// same text, and both are right: following a rename is not the same act
+/// as asserting a declaration ought to exist.
 fn scan_feature_refs(body: &str) -> BTreeMap<String, (RefForm, String)> {
+    let masked = mask_code_spans(body);
     let mut found: BTreeMap<String, (RefForm, String)> = BTreeMap::new();
-    for target in link_targets(body) {
+    for target in link_targets(&masked) {
         record_ref(&mut found, RefForm::Link, &target);
     }
-    for token in token_runs(body) {
+    for token in token_runs(&masked) {
         record_ref(&mut found, RefForm::Bare, token);
     }
     found
@@ -619,19 +633,16 @@ fn record_ref(found: &mut BTreeMap<String, (RefForm, String)>, form: RefForm, to
 /// `some_section` fails the feature-id shape test rather than being
 /// truncated into one that passes it.
 ///
-/// Code spans are blanked first ([`mask_code_spans`]). Prose that *quotes*
-/// the link syntax — a body explaining that `](#f-foo)` is a dead link, or
-/// a roadmap entry documenting this very check — is documentation, not a
-/// link, and must not raise a hard error. Found by dogfooding: the first
-/// feature file written about this check failed its own rule.
-///
-/// Bare tokens are deliberately still scanned inside code spans: a
-/// backticked `` `F-foo` `` is a real mention, and it is only a warning.
+/// Takes an already-masked body — [`scan_feature_refs`] blanks code spans
+/// once for both scans. Prose that *quotes* the link syntax — a body
+/// explaining that `](#f-foo)` is a dead link, or a roadmap entry
+/// documenting this very check — is documentation, not a link, and must not
+/// raise a hard error. Found by dogfooding: the first feature file written
+/// about this check failed its own rule.
 fn link_targets(body: &str) -> Vec<String> {
     const OPEN: &str = "](#";
-    let masked = mask_code_spans(body);
     let mut out = Vec::new();
-    let mut rest = masked.as_str();
+    let mut rest = body;
     while let Some(start) = rest.find(OPEN) {
         let after = &rest[start + OPEN.len()..];
         match after.find(')') {
@@ -1681,8 +1692,7 @@ mod tests {
     #[test]
     fn scan_does_not_read_a_link_inside_a_code_span() {
         let refs = scan_feature_refs("A link `](#f-foo)` is a hard error.");
-        // Still seen — as a bare mention, which is only a warning.
-        assert_eq!(refs["f-foo"].0, RefForm::Bare, "got: {refs:?}");
+        assert!(!refs.contains_key("f-foo"), "got: {refs:?}");
     }
 
     /// A fenced block is just a long code span, and the fence must not
@@ -1691,8 +1701,35 @@ mod tests {
     fn scan_masks_fenced_blocks_and_resumes_after_them() {
         let body = "```\n[x](#f-inside)\n```\nThen [y](#f-outside).";
         let refs = scan_feature_refs(body);
-        assert_eq!(refs["f-inside"].0, RefForm::Bare, "got: {refs:?}");
+        assert!(!refs.contains_key("f-inside"), "got: {refs:?}");
         assert_eq!(refs["f-outside"].0, RefForm::Link, "got: {refs:?}");
+    }
+
+    /// A backticked token is a path, a filename or a literal — not prose
+    /// naming a feature. A report named after a rung is the motivating
+    /// case (#58): there is no `F-capture-rung2` and there should not be,
+    /// so the warning was asking for a feature to exist because a *file*
+    /// was named after one. Unfixable without changing correct content,
+    /// since the path is the file's name.
+    #[test]
+    fn a_backticked_token_is_a_literal_not_a_mention() {
+        let refs = scan_feature_refs("Reshaped by feature-torture (`reports/F-capture-rung2.md`).");
+        assert!(!refs.contains_key("f-capture-rung2"), "got: {refs:?}");
+        // Outside backticks the same token is still a mention.
+        let refs = scan_feature_refs("Reshaped by F-capture-rung2, roughly.");
+        assert_eq!(refs["f-capture-rung2"].0, RefForm::Bare, "got: {refs:?}");
+    }
+
+    /// What the old rule also covered, now deliberately given up: an
+    /// author writing a *genuine* cross-reference in backticks no longer
+    /// gets the warning. That is the price of reading a code span as a
+    /// literal, and it is the right way round — a missed warning costs a
+    /// reader one lookup, while the false one cost the adopter a defect
+    /// they could not repair.
+    #[test]
+    fn a_genuine_reference_in_backticks_is_given_up() {
+        let r = dangling(&["Supersedes `F-gone`."], &["F-here"]);
+        assert!(r.warnings.is_empty(), "got: {:?}", r.warnings);
     }
 
     /// An unterminated backtick is an ordinary character — it must not
@@ -1736,7 +1773,7 @@ mod tests {
 
     #[test]
     fn dangling_bare_token_is_only_a_warning() {
-        let r = dangling(&["Sibling to `F-gone`, roughly."], &["F-here"]);
+        let r = dangling(&["Sibling to F-gone, roughly."], &["F-here"]);
         assert!(!r.has_hard_errors());
         assert_eq!(r.warnings.len(), 1, "got: {:?}", r.warnings);
         assert!(r.warnings[0]
