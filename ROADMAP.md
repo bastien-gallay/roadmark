@@ -465,10 +465,11 @@ no way to satisfy it without changing correct content, since the path is the
 file's name.
 
 Code spans are now masked once, for the link scan and the bare-token scan
-alike. `rename` is deliberately untouched: it still rewrites a path reference
-inside backticks, and should. The two want opposite things from the same text
-and both are right — following a rename is not the same act as asserting a
-declaration ought to exist.
+alike. `rename` is untouched: it still rewrites a path reference inside
+backticks. Whether it should is a separate question this does not answer —
+reproduced, renaming turns `reports/F-capture-rung2.md` into a path to a file
+that does not exist, and that rewrite is now unwatched on both sides. The two
+behaviours are separable, so this one lands alone.
 
 What the old rule also covered is given up on purpose: a genuine
 cross-reference written in backticks no longer warns. That is the right way

@@ -601,9 +601,13 @@ fn check_dangling_refs(
 /// content, since the path is the file's name.
 ///
 /// This does not touch `rename`, which still rewrites a path reference
-/// inside backticks — and should. The two want opposite things from the
-/// same text, and both are right: following a rename is not the same act
-/// as asserting a declaration ought to exist.
+/// inside backticks. Whether it *should* is a separate question and not
+/// one this change answers: reproduced, `rename f-capture-rung2 f-x`
+/// turns `` `reports/F-capture-rung2.md` `` into `` `reports/F-x.md` ``,
+/// a file that does not exist — `rename` moves feature files, not report
+/// files. That was already true, and it is now unwatched on both sides.
+/// See #75. The two behaviours are separable, so this one lands alone
+/// rather than waiting on that.
 fn scan_feature_refs(body: &str) -> BTreeMap<String, (RefForm, String)> {
     let masked = mask_code_spans(body);
     let mut found: BTreeMap<String, (RefForm, String)> = BTreeMap::new();

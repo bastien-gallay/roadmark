@@ -20,9 +20,10 @@ and this project adheres to
   path is the file's name.
   Code spans are now masked once for both the link scan and the bare-token
   scan. `rename` is untouched and still rewrites a path reference inside
-  backticks — the two want opposite things from the same text and both are
-  right, because following a rename is not the same act as asserting a
-  declaration ought to exist.
+  backticks; whether it should is #75, not answered here — reproduced, it
+  turns `` `reports/F-capture-rung2.md` `` into a path to a file that does
+  not exist, and that rewrite is now unwatched on both sides. The two
+  behaviours are separable, so this one lands alone.
   Given up deliberately: a *genuine* cross-reference written in backticks
   no longer warns. A missed warning costs a reader one lookup; the false
   one cost the adopter a defect they could not repair.
