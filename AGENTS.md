@@ -190,8 +190,22 @@ Subcommand modules follow the same split:
   answer) and so is verbatim author text: a long body line — or a
   `source_note` holding a URL longer than the budget, which `wrap_words`
   overflows rather than breaking mid-token — is the project's own choice,
-  and one it can fix in its own source. Wrap with `wrap_words` when a new
-  emitted line can grow, and keep it inside
+  and one it can fix in its own source.
+
+  **"Verbatim" means the text still has the shape the author gave it.**
+  The exemption is not about who typed the words, it is about whether the
+  project can fix the line where they wrote it. Text the toolchain
+  *recomposed* fails that test even though every word is the author's:
+  `import` joins a bullet's continuation lines, so a source wrapped at 68
+  and 48 columns becomes a 104-column body the adopter cannot find
+  anywhere in their own file (#71). That is the same defect as #54 and
+  #67 wearing author's clothes. So the question to ask of a long line is
+  never "did we write it" but "can the project fix it at the source" —
+  and read the rule as covering the whole chain, `import` included, not
+  `render` alone.
+
+  Wrap with `wrap_words` when a new emitted line can grow, and keep it
+  inside
   `nothing_render_emits_on_its_own_exceeds_eighty_columns`, which spans
   the whole document on a deliberately long id — extend that rather than
   working around it.
