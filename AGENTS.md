@@ -121,9 +121,13 @@ Subcommand modules follow the same split:
 ## Design decisions to preserve
 
 - **Feature bodies stay unparsed `String`s.** A markdown parser would
-  round-trip poorly; the renderer uses the first non-empty line as the
-  catalog Summary and emits the full body verbatim in the Details
-  section. Don't introduce a markdown AST.
+  round-trip poorly; the renderer uses the first non-empty **paragraph**
+  as the catalog Summary — lines joined with spaces, so an 80-column
+  house style can wrap it (#55) — and emits the full body verbatim in
+  the Details section. Don't introduce a markdown AST. The one piece of
+  markdown structure `render` does read is the code span, and it reads
+  it through `code_span_scan`, the crate's single implementation of that
+  rule (`validate` masks with the same one).
 - **Output is deterministic.** `load_features` walks in filename order
   and `sort_features` uses a total key (target bucket → status →
   horizon → `shipped_order` → id). Any new emission must keep
@@ -190,6 +194,27 @@ Subcommand modules follow the same split:
   `render_uses_title_and_source_note`; extend it rather than working
   around it, and wrap with `wrap_words` when a new emitted line can grow.
 
+  **It is currently false for two lines** (#67), found by re-checking the
+  claim against the published binary rather than against this repo's own
+  tree: a `## Details` heading repeats the id twice around a 26-character
+  frame, so an id past ~27 characters overflows — and `import` derives
+  exactly such ids from bullet prose — while `import-leftovers.md` opens
+  on a 180-column comment. The heading escapes markdownlint because
+  MD013's non-strict default skips a line with no space past the limit,
+  so the lint is silent while the file is over budget. Treat the rule as
+  the target and #67 as the known gap; do not add a third instance.
+
+  The wider rule the first lint run taught: **every state `validate`
+  accepts has to render lintable markdown, including the ones it only
+  warns about.** An empty body is a warning, so it reaches `render` on a
+  tree the tool called clean — where it emitted `|  |` for the Summary
+  cell and left two blank lines under its Details heading, both lint
+  errors. Neither was reachable in this repo's own tree, so neither was
+  visible until the generated file stopped being excluded. When adding a
+  render path, ask what a *warned-about* input does to it, not just a
+  valid one — and check it against an input this repo does not itself
+  produce, since our own tree is the one sample guaranteed to pass.
+
 - **Replacing a validation rule: enumerate what the old one covered
   before you delete it.** A check usually guards more than the case that
   motivated it. Removing the "unknown `[fields.X]`" config check — right,
@@ -226,6 +251,17 @@ Subcommand modules follow the same split:
   has run in parallel, compile *and* test the merged tree, and stack the
   branches — rebase the second on the first and retarget its base —
   rather than merging both into `main` and finding out there.
+- **A comment that justifies a guard must state a failure you have
+  reproduced.** The truncation's dangling-code-span guard was documented
+  as preventing an unclosed backtick from "swallowing the rest of the
+  row, including the `|` that ends the cell". None of that was true — an
+  unmatched run renders literally in CommonMark, and `escape_cell` has
+  already escaped every `|` — so the guard invented the corruption it
+  claimed to prevent, appending a backtick to prose that merely
+  *mentioned* one. The prose was plausible, which is exactly why it
+  survived review of the code around it. Reproduce the failure first;
+  if you cannot, you are guarding against a story.
+
 - **Inserting a function between a doc block and its `fn` silently
   reattaches the doc.** Rust binds `///` to whatever item follows, so a
   new function dropped above an existing one steals its documentation

@@ -295,7 +295,7 @@ unbucketed_label = "Unsorted"     # optional: heading for the tail section
 ## Must
 
 | ID | Type | Area | Status | Summary |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 …
 
 ## Should
