@@ -10,6 +10,24 @@ and this project adheres to
 
 ### Fixed
 
+- **A bare reference inside a code span is no longer flagged (#58).** The
+  warning's stated purpose is "prose saying `F-something` that no feature
+  declares" — but inside backticks the text is not prose, it is a path, a
+  filename or a literal. A report named after a feature
+  (`reports/F-capture-rung2.md`) was reported as naming an undeclared
+  feature, so the check asked for a feature to exist because a *file* was
+  named after one. Unfixable without changing correct content, since the
+  path is the file's name.
+  Code spans are now masked once for both the link scan and the bare-token
+  scan. `rename` is untouched and still rewrites a path reference inside
+  backticks; whether it should is #75, not answered here — reproduced, it
+  turns `` `reports/F-capture-rung2.md` `` into a path to a file that does
+  not exist, and that rewrite is now unwatched on both sides. The two
+  behaviours are separable, so this one lands alone.
+  Given up deliberately: a *genuine* cross-reference written in backticks
+  no longer warns. A missed warning costs a reader one lookup; the false
+  one cost the adopter a defect they could not repair.
+
 - **`import` no longer un-wraps the body it read (#71).** Reading a
   checkbox bullet joins its continuation lines, and `## Details`
   reproduces a body verbatim — so a source the adopter had wrapped at 68
